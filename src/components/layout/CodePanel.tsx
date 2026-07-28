@@ -1,6 +1,6 @@
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAppStore } from "@/store/useAppStore";
-import { generateRaylibCode, generateReadme, generateShaderSnippet } from "@/codegen/generateRaylibCode";
+import { generateEffectHeader, generateMainTab, generateReadme, generateShaderSnippet } from "@/codegen/generateRaylibCode";
 import { Button } from "@/components/ui/button";
 import { Copy } from "lucide-react";
 import { useMemo } from "react";
@@ -30,20 +30,20 @@ export function CodePanel() {
   const activeEffect = useAppStore((s) => s.activeEffect);
   const params = useAppStore((s) => s.paramsByEffect[s.activeEffect]);
 
-  const code = useMemo(() => generateRaylibCode(activeEffect, params), [activeEffect, params]);
+  const code = useMemo(() => generateEffectHeader(activeEffect, params), [activeEffect, params]);
+  const main = useMemo(() => generateMainTab(activeEffect), [activeEffect]);
   const shader = useMemo(() => generateShaderSnippet(activeEffect), [activeEffect]);
-  const json = useMemo(() => JSON.stringify({ effect: activeEffect, params }, null, 2), [activeEffect, params]);
   const readme = useMemo(() => generateReadme(activeEffect), [activeEffect]);
 
-  const activeCode = codeTab === "shader" ? shader : codeTab === "json" ? json : codeTab === "readme" ? readme : code;
+  const activeCode = codeTab === "main" ? main : codeTab === "shader" ? shader : codeTab === "readme" ? readme : code;
 
   return (
     <div className="flex h-full flex-col bg-panel">
       <Tabs value={codeTab} onValueChange={(v) => setCodeTab(v as typeof codeTab)} className="flex h-full min-h-0 flex-col">
         <TabsList className="shrink-0">
           <TabsTrigger value="code">Code</TabsTrigger>
+          <TabsTrigger value="main">Main</TabsTrigger>
           <TabsTrigger value="shader">Shader</TabsTrigger>
-          <TabsTrigger value="json">JSON</TabsTrigger>
           <TabsTrigger value="readme">README</TabsTrigger>
         </TabsList>
         <div className="mt-0 flex min-h-0 flex-1 flex-col">
