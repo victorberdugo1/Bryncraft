@@ -44,6 +44,8 @@ interface AppState {
   codeTab: CodeTab;
   mobileTab: MobileTab;
 
+  searchQuery: string;
+
   exportJob: ExportJobState;
 
   leftSidebarOpen: boolean;
@@ -75,6 +77,7 @@ interface AppState {
 
   setCodeTab: (t: CodeTab) => void;
   setMobileTab: (t: MobileTab) => void;
+  setSearchQuery: (q: string) => void;
 
   startExport: (format: ExportFormat, totalFrames: number) => void;
   updateExportProgress: (currentFrame: number, etaSeconds: number) => void;
@@ -108,6 +111,7 @@ export const useAppStore = create<AppState>((set) => ({
 
   codeTab: "code",
   mobileTab: "preview",
+  searchQuery: "",
 
   exportJob: { running: false, format: "mp4", progress: 0, currentFrame: 0, totalFrames: 0, etaSeconds: 0, phase: "capturing", statusMessage: undefined, postCaptureProgress: 0, postCaptureEtaSeconds: 0 },
 
@@ -149,6 +153,7 @@ export const useAppStore = create<AppState>((set) => ({
 
   setCodeTab: (t) => set({ codeTab: t }),
   setMobileTab: (t) => set({ mobileTab: t }),
+  setSearchQuery: (q) => set({ searchQuery: q }),
 
   startExport: (format: ExportFormat, totalFrames: number) =>
     set({

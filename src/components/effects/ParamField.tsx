@@ -4,6 +4,7 @@ import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { handleManualDeleteKey } from "@/lib/manualDeleteKey";
 
 interface ParamFieldProps {
   schema: ParamSchema;
@@ -49,7 +50,12 @@ function ColorAlphaField({ value, onChange }: { value: string; onChange: (v: str
           onChange={(e) => onChange(composeRgbA(e.target.value, alpha))}
           className="h-6 w-8 cursor-pointer rounded border border-border bg-transparent p-0"
         />
-        <Input value={value} onChange={(e) => onChange(e.target.value)} className="font-mono uppercase" />
+        <Input
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          onKeyDown={(e) => handleManualDeleteKey(e, value, onChange)}
+          className="font-mono uppercase"
+        />
       </div>
 
       <div className="flex items-center justify-between">
@@ -133,6 +139,7 @@ export function ParamField({ schema, value, onChange }: ParamFieldProps) {
           <Input
             value={String(value)}
             onChange={(e) => onChange(e.target.value)}
+            onKeyDown={(e) => handleManualDeleteKey(e, String(value), onChange)}
             className="font-mono uppercase"
           />
         </div>
@@ -143,7 +150,12 @@ export function ParamField({ schema, value, onChange }: ParamFieldProps) {
       )}
 
       {schema.type === "string" && (
-        <Input value={String(value)} onChange={(e) => onChange(e.target.value)} className="font-mono" />
+        <Input
+          value={String(value)}
+          onChange={(e) => onChange(e.target.value)}
+          onKeyDown={(e) => handleManualDeleteKey(e, String(value), onChange)}
+          className="font-mono"
+        />
       )}
     </div>
   );

@@ -2,8 +2,13 @@ import { Search, Settings, Sparkles, BookOpen, Users, Store } from "lucide-react
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
+import { useAppStore } from "@/store/useAppStore";
+import { handleManualDeleteKey } from "@/lib/manualDeleteKey";
 
 export function TopBar() {
+  const searchQuery = useAppStore((s) => s.searchQuery);
+  const setSearchQuery = useAppStore((s) => s.setSearchQuery);
+
   return (
     <header className="flex h-11 shrink-0 items-center gap-3 border-b border-border bg-panel px-3">
       <div className="flex items-center gap-2 pr-2">
@@ -31,7 +36,13 @@ export function TopBar() {
       <div className="mx-auto flex w-full max-w-sm items-center gap-2">
         <div className="relative w-full">
           <Search className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground" />
-          <Input placeholder="Search effects, shaders, presets…" className="pl-6" />
+          <Input
+            placeholder="Search effects…"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={(e) => handleManualDeleteKey(e, searchQuery, setSearchQuery)}
+            className="pl-6"
+          />
         </div>
       </div>
 

@@ -8,6 +8,15 @@ const ORDER: EffectId[] = ["ascii", "particles", "crt"];
 export function LeftSidebar() {
   const activeEffect = useAppStore((s) => s.activeEffect);
   const setActiveEffect = useAppStore((s) => s.setActiveEffect);
+  const searchQuery = useAppStore((s) => s.searchQuery);
+
+  const query = searchQuery.trim().toLowerCase();
+  const visible = query
+    ? ORDER.filter((id) => {
+        const def = EFFECT_DEFINITIONS[id];
+        return def.name.toLowerCase().includes(query) || def.description.toLowerCase().includes(query);
+      })
+    : ORDER;
 
   return (
     <aside className="flex h-full w-full flex-col border-r border-border bg-panel">
@@ -15,7 +24,10 @@ export function LeftSidebar() {
         Effect Library
       </div>
       <div className="flex-1 space-y-3 overflow-y-auto px-3 pb-3">
-        {ORDER.map((id) => {
+        {visible.length === 0 && (
+          <p className="pt-3 text-center text-[11px] text-muted-foreground">No effects match "{searchQuery}"</p>
+        )}
+        {visible.map((id) => {
           const def = EFFECT_DEFINITIONS[id];
           const active = id === activeEffect;
           return (
