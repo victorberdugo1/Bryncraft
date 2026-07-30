@@ -81,8 +81,10 @@ LDFLAGS := ./$(RAYLIB_LIB) \
            -s USE_GLFW=3 \
            -s GL_ENABLE_GET_PROC_ADDRESS=1 \
            -s ASYNCIFY \
-           -s TOTAL_MEMORY=134217728 \
+           -s INITIAL_MEMORY=134217728 \
+           -s ALLOW_MEMORY_GROWTH=1 \
            -s FORCE_FILESYSTEM=1 \
+           -s DISABLE_EXCEPTION_CATCHING=0 \
            -s EXPORTED_FUNCTIONS="$(EXPORTED_FUNCS)" \
            -s EXPORTED_RUNTIME_METHODS="$(EXPORTED_RUNTIME)" \
            --preload-file $(ASSETS_DIR) \

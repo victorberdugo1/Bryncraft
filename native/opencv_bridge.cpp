@@ -426,13 +426,29 @@ void OpencvEffect_Draw(RenderTexture2D scene, int screenW, int screenH) {
     g_frameCounter++;
 
     cv::Mat out;
-    switch (g_params.mode) {
-        case OCV_MODE_EDGES:    out = RunEdges(frame); break;
-        case OCV_MODE_CONTOURS: out = RunContours(frame); break;
-        case OCV_MODE_FLOW:     out = RunOpticalFlow(frame); break;
-        case OCV_MODE_BG:       out = RunBgSubtract(frame); break;
-        case OCV_MODE_FACE:     out = RunFaceDetect(frame); break;
-        default:                out = frame; break;
+    try {
+        switch (g_params.mode) {
+            case OCV_MODE_EDGES:    out = RunEdges(frame); break;
+            case OCV_MODE_CONTOURS: out = RunContours(frame); break;
+            case OCV_MODE_FLOW:     out = RunOpticalFlow(frame); break;
+            case OCV_MODE_BG:       out = RunBgSubtract(frame); break;
+            case OCV_MODE_FACE:     out = RunFaceDetect(frame); break;
+            default:                out = frame; break;
+        }
+    } catch (const cv::Exception &e) {
+        // OpenCV throws cv::Exception (via CV_Assert/CV_Error) on plenty of
+        // recoverable conditions — a malformed/missing cascade file, an
+        // unexpected Mat shape at some internal assertion, etc. Emscripten
+        // aborts the ENTIRE wasm runtime on an uncaught C++ exception
+        // (needs -s DISABLE_EXCEPTION_CATCHING=0 at link time just to reach
+        // this catch at all — see the Makefile), so letting any of these
+        // propagate would take down the whole app over one bad frame in one
+        // effect. Fall back to a plain passthrough instead.
+        fprintf(stderr, "[opencv_bridge] cv::Exception in mode %d: %s\n", (int)g_params.mode, e.what());
+        out = frame;
+    } catch (const std::exception &e) {
+        fprintf(stderr, "[opencv_bridge] std::exception in mode %d: %s\n", (int)g_params.mode, e.what());
+        out = frame;
     }
     if (!out.isContinuous()) out = out.clone();
 
