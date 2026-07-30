@@ -38,8 +38,6 @@ export async function initCascadeData(): Promise<void> {
     }
     const cascadeData = new Uint8Array(await response.arrayBuffer());
 
-    console.log(`[Bryncraft] Cascade read: ${cascadeData.length} bytes`);
-
     // ⚠️ Si está truncado (< 100KB), silenciosamente falla
     // sin crashear. face_detect será passthrough.
     if (cascadeData.length < 100000) {
@@ -66,8 +64,6 @@ export async function initCascadeData(): Promise<void> {
     Module.HEAPU8.set(cascadeData, ptr);
     Module._js_set_cascade_data(cascadeData.length, ptr);
     Module._free(ptr);
-
-    console.log('[Bryncraft] ✅ Cascade loaded successfully');
   } catch (error) {
     // Cualquier error → silencioso, graceful degradation
     console.warn('[Bryncraft] Cascade load failed:', error instanceof Error ? error.message : String(error));
