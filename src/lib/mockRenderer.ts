@@ -9,6 +9,26 @@ interface Particle {
   lifetime: number;
 }
 
+interface MatrixStream {
+  col: number;
+  slot: 0 | 1;
+  head: number;
+  dir: 1 | -1;
+  speed: number;
+  active: boolean;
+}
+
+// El stack de fuentes usado por el canvas para el efecto ASCII/Matrix.
+const ASCII_FONT_STACK = `"JetBrains Mono", monospace`;
+
+function hexToRgb(hex: string): [number, number, number] {
+  const clean = hex.replace("#", "");
+  const r = parseInt(clean.slice(0, 2), 16);
+  const g = parseInt(clean.slice(2, 4), 16);
+  const b = parseInt(clean.slice(4, 6), 16);
+  return [Number.isNaN(r) ? 0 : r, Number.isNaN(g) ? 0 : g, Number.isNaN(b) ? 0 : b];
+}
+
 /**
  * Reference preview renderer. This is NOT the final visual output — the compiled
  * Raylib/WASM build (native/) owns rendering — but it mirrors the same param
@@ -21,6 +41,12 @@ export class MockRenderer {
   private effect: EffectId = "ascii";
   private params: EffectParams = {};
   private particles: Particle[] = [];
+  private matrixStreams: MatrixStream[] = [];
+  private matrixGlyphs: string[] = [];
+  private matrixBaseGlyphs: string[] = [];
+  private matrixCols = 0;
+  private matrixRows = 0;
+  private matrixColLumaPrev: number[] = [];
   private frame = 0;
   // requestAnimationFrame-based scheduling — the browser's smoothest option
   // while the tab is visible — but it is fully suspended by every major
@@ -37,12 +63,23 @@ export class MockRenderer {
   private t0 = performance.now();
   private sourceFrames: ImageBitmap[] | null = null;
   private sourceFrameIndex = 0;
+  // Live camera feed (getUserMedia, via ViewportCanvas + cameraCapture.ts).
+  // Mutually exclusive with sourceFrames at the app level (see
+  // useAppStore's setCameraActive/loadVideo), so currentSourceFrame just
+  // prefers this when set.
+  private cameraVideoEl: HTMLVideoElement | null = null;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
     const ctx = canvas.getContext("2d");
     if (!ctx) throw new Error("2D context unavailable");
     this.ctx = ctx;
+
+    // El canvas 2D no espera automáticamente a que un webfont termine de
+    // cargar: si fillText() se llama antes de que "JetBrains Mono" esté
+    // lista, usa el fallback del sistema para ese frame y nunca vuelve a
+    // redibujar solo porque la fuente llegó después. Se fuerza la carga acá.
+    void document.fonts.load(`16px "JetBrains Mono"`);
   }
 
   setStatsListener(fn: (s: ViewportOverlayStats) => void) {
@@ -57,6 +94,7 @@ export class MockRenderer {
   setSourceFrames(frames: ImageBitmap[] | null) {
     this.sourceFrames = frames;
     this.sourceFrameIndex = 0;
+    console.log(`[MockRenderer] setSourceFrames: ${frames?.length ?? 0} frames loaded`);
   }
 
   get hasSourceFrames() {
@@ -69,10 +107,44 @@ export class MockRenderer {
     this.sourceFrameIndex = ((Math.floor(index) % n) + n) % n;
   }
 
-  private get currentSourceFrame(): ImageBitmap | null {
+  private get currentSourceFrame(): ImageBitmap | HTMLVideoElement | null {
+    if (this.cameraVideoEl) return this.cameraVideoEl;
     if (!this.sourceFrames?.length) return null;
     return this.sourceFrames[this.sourceFrameIndex] ?? null;
   }
+
+  /** ImageBitmap exposes .width/.height directly; HTMLVideoElement's
+   * .width/.height instead reflect its (here, never-set) HTML layout
+   * attributes — the actual frame size is .videoWidth/.videoHeight. Every
+   * call site that used to read source.width/source.height directly needs
+   * this now that currentSourceFrame can return either type. */
+  private sourceDims(source: ImageBitmap | HTMLVideoElement): { width: number; height: number } {
+    if (source instanceof HTMLVideoElement) {
+      return { width: source.videoWidth, height: source.videoHeight };
+    }
+    return { width: source.width, height: source.height };
+  }
+
+  /** Provides (or clears, passing null) a live camera <video> element as
+   * the image source, same role as setSourceFrames but for a live feed
+   * instead of pre-decoded frames. */
+  setCameraSource(videoEl: HTMLVideoElement | null) {
+    this.cameraVideoEl = videoEl;
+  }
+
+  get hasCameraSource() {
+    return !!this.cameraVideoEl;
+  }
+
+  /** Called once per rAF tick from ViewportCanvas's camera loop, mirroring
+   * wasmBridge.pushCameraFrame's call site so that loop can drive whichever
+   * backend is active without branching. There's nothing to actually push
+   * here: the <video> element plays live and drawImage() always reads its
+   * current frame directly (see currentSourceFrame) — unlike video-file
+   * ImageBitmaps, a live video element needs no separate per-frame decode
+   * step. This method exists purely so the call site doesn't need to know
+   * that difference. */
+  pushCameraFrame() {}
 
   private drawCover(ctx: CanvasRenderingContext2D, img: CanvasImageSource, sw: number, sh: number, w: number, h: number) {
     const scale = Math.max(w / sw, h / sh);
@@ -85,6 +157,14 @@ export class MockRenderer {
     this.effect = effect;
     this.params = params;
     if (effect === "particles") this.particles = [];
+    if (effect === "ascii") {
+      this.matrixStreams = [];
+      this.matrixGlyphs = [];
+      this.matrixBaseGlyphs = [];
+      this.matrixCols = 0;
+      this.matrixRows = 0;
+      this.matrixColLumaPrev = [];
+    }
   }
 
   setParams(params: EffectParams) {
@@ -119,13 +199,16 @@ export class MockRenderer {
 
     switch (this.effect) {
       case "ascii":
-        this.renderAscii(w, h);
+        this.renderAscii(w, h, dt);
         break;
       case "particles":
         this.renderParticles(w, h, dt);
         break;
       case "crt":
         this.renderCrt(w, h, now);
+        break;
+      case "opencv":
+        this.renderOpencv(w, h, now);
         break;
     }
 
@@ -182,7 +265,8 @@ export class MockRenderer {
     if (source) {
       ctx.fillStyle = "#000000";
       ctx.fillRect(0, 0, w, h);
-      this.drawCover(ctx, source, source.width, source.height, w, h);
+      const { width, height } = this.sourceDims(source);
+      this.drawCover(ctx, source, width, height, w, h);
       return;
     }
     const grad = ctx.createLinearGradient(0, 0, w, h);
@@ -193,18 +277,12 @@ export class MockRenderer {
     this.paintWaveScene(ctx, w, h, t, "#44D4FF");
   }
 
-  private renderAscii(w: number, h: number) {
+  private renderAscii(w: number, h: number, dt: number) {
     const ctx = this.ctx;
-    const ramp = String(this.params.characters ?? " .:-=+*#%@");
+    const mode = String(this.params.mode ?? "normal");
     const fontSize = Number(this.params.fontSize ?? 10);
-    const brightness = Number(this.params.brightness ?? 0.8);
-    const contrast = Number(this.params.contrast ?? 1.2);
-    const gamma = Number(this.params.gamma ?? 1.1);
-    const fg = String(this.params.foreground ?? "#44D4FF");
     const bg = String(this.params.background ?? "#0B0B0E00");
-    const invert = Boolean(this.params.invert ?? false);
 
-    // render scene at low res, then sample luminance per cell
     const cols = Math.max(1, Math.floor(w / fontSize));
     const rows = Math.max(1, Math.floor(h / fontSize));
 
@@ -213,10 +291,12 @@ export class MockRenderer {
     off.height = rows;
     const octx = off.getContext("2d")!;
     const source = this.currentSourceFrame;
+    
     if (source) {
       octx.fillStyle = "#000000";
       octx.fillRect(0, 0, cols, rows);
-      this.drawCover(octx, source, source.width, source.height, cols, rows);
+      const { width, height } = this.sourceDims(source);
+      this.drawCover(octx, source, width, height, cols, rows);
     } else {
       const t = performance.now();
       const grad = octx.createLinearGradient(0, 0, cols, rows);
@@ -229,20 +309,37 @@ export class MockRenderer {
 
     const img = octx.getImageData(0, 0, cols, rows).data;
 
-    // Painting `bg` via fillRect uses the default "source-over" compositing,
-    // which is a no-op wherever bg's alpha is 0 (as it is by default here) —
-    // it does NOT erase the previous frame's opaque glyphs. Without an
-    // explicit clear first, every character ever drawn since the canvas was
-    // created stays baked in forever, invisible on opaque exports (mp4/webm,
-    // or any solid bg) but exactly what corrupted the MOV alpha export's
-    // transparent background: frames accumulate into a solid smear instead
-    // of each one showing only its own current character grid.
     ctx.clearRect(0, 0, w, h);
-    ctx.fillStyle = bg;
-    ctx.fillRect(0, 0, w, h);
-    ctx.fillStyle = fg;
-    ctx.font = `${fontSize}px "JetBrains Mono", monospace`;
+    
+    // En modo matrix el video NUNCA se dibuja en crudo: como en la película,
+    // el "video" se reconstruye enteramente con la brillantez/densidad de
+    // los glifos (ver renderAsciiMatrix). Dibujar el frame crudo detrás del
+    // texto es lo que hacía que, sin importar density/color/velocidad, se
+    // viera como un video con rayitas encima en vez de un pasillo hecho de
+    // caracteres.
+    if (mode === "matrix") {
+      ctx.fillStyle = "#000000";
+      ctx.fillRect(0, 0, w, h);
+    } else {
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, w, h);
+    }
+    
+    ctx.font = `${fontSize}px ${ASCII_FONT_STACK}`;
     ctx.textBaseline = "top";
+
+    if (mode === "matrix") {
+      this.renderAsciiMatrix(dt, cols, rows, fontSize, img);
+      return;
+    }
+
+    const ramp = String(this.params.characters ?? " .:-=+*#%@");
+    const brightness = Number(this.params.brightness ?? 0.8);
+    const contrast = Number(this.params.contrast ?? 1.2);
+    const gamma = Number(this.params.gamma ?? 1.1);
+    const fg = String(this.params.foreground ?? "#44D4FF");
+    const invert = Boolean(this.params.invert ?? false);
+    ctx.fillStyle = fg;
 
     for (let y = 0; y < rows; y++) {
       let line = "";
@@ -258,6 +355,175 @@ export class MockRenderer {
       }
       ctx.fillText(line, 0, y * fontSize);
     }
+  }
+
+  private renderAsciiMatrix(
+    dt: number,
+    cols: number,
+    rows: number,
+    fontSize: number,
+    img: Uint8ClampedArray,
+  ) {
+    const ctx = this.ctx;
+    
+    const charsRaw = String(
+      this.params.matrixChars ?? "0123456789ABCDEF",
+    );
+    const glyphPool = Array.from(charsRaw).filter((c) => c !== " ");
+    const direction = String(this.params.matrixDirection ?? "down");
+    const speed = Number(this.params.matrixSpeed ?? 10);
+    const density = Number(this.params.matrixDensity ?? 0.85);
+    const trailLength = Math.max(2, Math.round(Number(this.params.matrixTrailLength ?? 16)));
+    const headColor = String(this.params.matrixHeadColor ?? "#CFFFE0");
+    const fg = String(this.params.foreground ?? "#44D4FF");
+    const reactive = Boolean(this.params.matrixReactive ?? true);
+    const reactivityMode = String(this.params.matrixReactivityMode ?? "speed");
+    const reactiveStrength = Number(this.params.matrixReactiveStrength ?? 0.8);
+    const imageStrength = Math.max(0, Number(this.params.matrixImageStrength ?? 1.3));
+    const wantBoth = direction === "both";
+
+    if (this.matrixCols !== cols || this.matrixRows !== rows) {
+      this.matrixCols = cols;
+      this.matrixRows = rows;
+      this.matrixGlyphs = new Array(cols * rows).fill(" ");
+      this.matrixBaseGlyphs = new Array(cols * rows)
+        .fill(" ")
+        .map(() => (glyphPool.length ? glyphPool[Math.floor(Math.random() * glyphPool.length)] : " "));
+      this.matrixStreams = [];
+      for (let c = 0; c < cols; c++) {
+        this.matrixStreams.push({ col: c, slot: 0, head: 0, dir: 1, speed: 0, active: false });
+        this.matrixStreams.push({ col: c, slot: 1, head: 0, dir: -1, speed: 0, active: false });
+      }
+      this.matrixColLumaPrev = new Array(cols).fill(0);
+    }
+
+    const colLuma: number[] = new Array(cols).fill(0);
+    for (let x = 0; x < cols; x++) {
+      let sum = 0;
+      for (let y = 0; y < rows; y++) {
+        const idx = (y * cols + x) * 4;
+        sum += (img[idx] + img[idx + 1] + img[idx + 2]) / (3 * 255);
+      }
+      colLuma[x] = sum / rows;
+    }
+
+    const colMotion: number[] = new Array(cols).fill(0);
+    if (this.matrixColLumaPrev.length === cols) {
+      for (let x = 0; x < cols; x++) {
+        colMotion[x] = Math.min(1, Math.abs(colLuma[x] - this.matrixColLumaPrev[x]) * 6);
+      }
+    }
+    this.matrixColLumaPrev = colLuma;
+
+    // --- Capa base: reconstruye la imagen fuente con la propia densidad/
+    // brillo de los glifos, en vez de mostrar el video en crudo. Esto es lo
+    // que en la referencia hace que se note claramente el pasillo, la gente
+    // y los cables: cada celda dibuja SIEMPRE un carácter, más brillante
+    // donde el frame es más claro y casi negro donde es oscuro. Por encima
+    // van las corrientes de código animadas (loop de abajo), más brillantes,
+    // dando el efecto de "rain" clásico sobre la imagen reconocible.
+    const [fgR, fgG, fgB] = hexToRgb(fg);
+    for (let y = 0; y < rows; y++) {
+      for (let x = 0; x < cols; x++) {
+        const idx = y * cols + x;
+        const pIdx = idx * 4;
+        const luma = (img[pIdx] + img[pIdx + 1] + img[pIdx + 2]) / (3 * 255);
+
+        // shimmer sutil: una fracción chica de celdas muta su glifo cada
+        // frame, como el parpadeo de fondo real del código de la película.
+        if (glyphPool.length && Math.random() < 0.06 * dt * (speed / 10)) {
+          this.matrixBaseGlyphs[idx] = glyphPool[Math.floor(Math.random() * glyphPool.length)];
+        }
+
+        const alpha = Math.min(1, Math.max(0.04, luma * imageStrength));
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = `rgb(${Math.round(fgR * 0.7)},${Math.round(fgG * 0.7)},${Math.round(fgB * 0.7)})`;
+        ctx.fillText(this.matrixBaseGlyphs[idx] ?? " ", x * fontSize, y * fontSize);
+      }
+    }
+    ctx.globalAlpha = 1;
+
+    for (const st of this.matrixStreams) {
+      if (st.slot === 1 && !wantBoth) {
+        st.active = false;
+        continue;
+      }
+      const dir: 1 | -1 = wantBoth ? (st.slot === 0 ? 1 : -1) : direction === "up" ? -1 : 1;
+      st.dir = dir;
+
+      const luma = (reactive && reactivityMode !== "off") ? colLuma[st.col] : 0;
+      const motion = (reactive && reactivityMode !== "off") ? colMotion[st.col] : 0;
+      
+      // Calcular boost solo si mode permite (speed, all)
+      const useSpeedReactivity = reactivityMode === "speed" || reactivityMode === "all";
+      const boost = useSpeedReactivity ? (1 + reactiveStrength * (luma * 0.5 + motion * 1.5)) : 1;
+
+      if (!st.active) {
+        // Para density o all mode: más spawn en zonas claras
+        let spawnDensity = density;
+        if ((reactivityMode === "density" || reactivityMode === "all") && reactive) {
+          spawnDensity = density * (0.3 + luma * 1.4); // Hasta 1.7x más denso en claros
+        }
+        
+        if (Math.random() < spawnDensity * dt * 0.6) {
+          st.head = dir > 0 ? -Math.random() * trailLength : rows - 1 + Math.random() * trailLength;
+          st.speed = speed * (0.6 + Math.random() * 0.8);
+          st.active = true;
+        } else {
+          continue;
+        }
+      } else {
+        st.head += dir * st.speed * boost * dt;
+        const outOfBounds = dir > 0 ? st.head - trailLength > rows : st.head + trailLength < -1;
+        if (outOfBounds) {
+          st.active = false;
+          continue;
+        }
+      }
+
+      for (let k = 0; k < trailLength; k++) {
+        const row = Math.round(st.head - dir * k);
+        if (row < 0 || row >= rows) continue;
+        const idx = row * cols + st.col;
+        if (k === 0 || Math.random() < 0.12) {
+          this.matrixGlyphs[idx] = glyphPool.length
+            ? glyphPool[Math.floor(Math.random() * glyphPool.length)]
+            : " ";
+        }
+        const fadeLin = 1 - k / trailLength;
+        const fade = fadeLin * fadeLin;
+        ctx.globalAlpha = k === 0 ? 1 : Math.max(0, fade);
+        
+        // Para colors o all mode: variar color según luminancia, siempre
+        // partiendo de los colores que el usuario eligió (antes esto usaba
+        // #CFFFE0/#44D4FF fijos sin importar qué se pusiera en Head Color /
+        // Foreground Color, por eso cambiar el color no se notaba).
+        let charColor = k === 0 ? headColor : fg;
+        if ((reactivityMode === "colors" || reactivityMode === "all") && reactive) {
+          const brightness = k === 0 ? Math.max(0.5, luma) : luma * 0.8;
+          const headRGB = hexToRgb(headColor);
+          const trailRGB = hexToRgb(fg);
+
+          if (k === 0) {
+            // Head color: más brillante en claros
+            const r = Math.round(headRGB[0] * brightness);
+            const g = Math.round(headRGB[1] * brightness);
+            const b = Math.round(headRGB[2] * brightness);
+            charColor = `rgb(${r},${g},${b})`;
+          } else {
+            // Trail: más saturation en claros
+            const r = Math.round(trailRGB[0] * brightness);
+            const g = Math.round(trailRGB[1] * brightness);
+            const b = Math.round(trailRGB[2] * brightness);
+            charColor = `rgb(${r},${g},${b})`;
+          }
+        }
+        
+        ctx.fillStyle = charColor;
+        ctx.fillText(this.matrixGlyphs[idx], st.col * fontSize, row * fontSize);
+      }
+    }
+    ctx.globalAlpha = 1;
   }
 
   private renderParticles(w: number, h: number, dt: number) {
@@ -291,7 +557,8 @@ export class MockRenderer {
     if (source) {
       ctx.fillStyle = "#000000";
       ctx.fillRect(0, 0, w, h);
-      this.drawCover(ctx, source, source.width, source.height, w, h);
+      const { width, height } = this.sourceDims(source);
+      this.drawCover(ctx, source, width, height, w, h);
       ctx.fillStyle = "rgba(11,11,14,0.25)";
       ctx.fillRect(0, 0, w, h);
     } else {
@@ -387,5 +654,33 @@ export class MockRenderer {
       ctx.fillStyle = `rgba(255,255,255,${Math.random() * flicker * 0.15})`;
       ctx.fillRect(0, 0, w, h);
     }
+  }
+
+  /**
+   * The actual OpenCV pipelines (edges/contours/optical flow/background
+   * subtraction/face detection) only exist natively in
+   * native/opencv_bridge.cpp — reimplementing five CV algorithms in JS
+   * canvas2D just for this dev-only fallback isn't worth the maintenance
+   * burden of a second implementation that could drift from the real one.
+   * This shows the raw source (video file or camera) plus a label, so
+   * switching to this effect in mock mode is clearly a "preview the wasm
+   * build to see this effect" state rather than silently doing nothing.
+   */
+  private renderOpencv(w: number, h: number, t: number) {
+    const ctx = this.ctx;
+    this.baseScene(w, h, t);
+
+    const label = "OpenCV Vision — build/run the WASM renderer to see this effect";
+    ctx.save();
+    ctx.font = `${Math.max(12, Math.round(w * 0.016))}px ${ASCII_FONT_STACK}`;
+    ctx.textBaseline = "bottom";
+    const paddingX = 12;
+    const paddingY = 10;
+    const metrics = ctx.measureText(label);
+    ctx.fillStyle = "rgba(11,11,14,0.65)";
+    ctx.fillRect(0, h - metrics.actualBoundingBoxAscent - paddingY * 2, metrics.width + paddingX * 2, metrics.actualBoundingBoxAscent + paddingY * 2);
+    ctx.fillStyle = "#44D4FF";
+    ctx.fillText(label, paddingX, h - paddingY);
+    ctx.restore();
   }
 }

@@ -1,4 +1,4 @@
-export type EffectId = "ascii" | "particles" | "crt";
+export type EffectId = "ascii" | "particles" | "crt" | "opencv";
 
 export type ParamType = "float" | "int" | "bool" | "color" | "string" | "select";
 
@@ -70,8 +70,12 @@ export interface ExportJobState {
 export const ASCII_EFFECT: EffectDefinition = {
   id: "ascii",
   name: "ASCII Renderer",
-  description: "Converts the rendered frame into a live ASCII character grid.",
+  description: "Converts the rendered frame into a live ASCII character grid. Supports normal luminance-mapping and Matrix mode (code rain).",
   params: [
+    // --- Modo ---
+    { key: "mode", label: "Mode", type: "select", default: "normal", options: ["normal", "matrix"], group: "Mode" },
+
+    // --- Normal mode (rampa de luminancia) ---
     { key: "characters", label: "Characters", type: "string", default: " .:-=+*#%@", group: "Ramp" },
     { key: "fontSize", label: "Font", type: "int", default: 10, min: 4, max: 32, step: 1, group: "Ramp" },
     { key: "brightness", label: "Brightness", type: "float", default: 0.8, min: 0, max: 2, step: 0.01, group: "Image" },
@@ -80,6 +84,18 @@ export const ASCII_EFFECT: EffectDefinition = {
     { key: "foreground", label: "Foreground Color", type: "color", default: "#44D4FF", group: "Color" },
     { key: "background", label: "Background Color", type: "color", default: "#0B0B0E00", alpha: true, group: "Color" },
     { key: "invert", label: "Invert", type: "bool", default: false, group: "Color" },
+
+    // --- Matrix mode (code rain) ---
+    { key: "matrixChars", label: "Characters", type: "string", default: "0123456789ABCDEF", group: "Matrix" },
+    { key: "matrixDirection", label: "Direction", type: "select", default: "down", options: ["down", "up", "both"], group: "Matrix" },
+    { key: "matrixSpeed", label: "Speed", type: "float", default: 14, min: 1, max: 50, step: 1, group: "Matrix" },
+    { key: "matrixDensity", label: "Density", type: "float", default: 0.97, min: 0, max: 1, step: 0.01, group: "Matrix" },
+    { key: "matrixTrailLength", label: "Trail Length", type: "int", default: 24, min: 2, max: 64, step: 1, group: "Matrix" },
+    { key: "matrixHeadColor", label: "Head Color", type: "color", default: "#CFFFE0", group: "Matrix" },
+    { key: "matrixImageStrength", label: "Image Strength", type: "float", default: 1.3, min: 0, max: 2.5, step: 0.05, group: "Matrix" },
+    { key: "matrixReactive", label: "React to Video", type: "bool", default: true, group: "Matrix" },
+    { key: "matrixReactivityMode", label: "Video Interaction", type: "select", default: "all", options: ["off", "speed", "density", "colors", "all"], group: "Matrix" },
+    { key: "matrixReactiveStrength", label: "Interaction Intensity", type: "float", default: 1.2, min: 0, max: 2, step: 0.01, group: "Matrix" },
   ],
 };
 
@@ -131,10 +147,53 @@ export const CRT_EFFECT: EffectDefinition = {
   ],
 };
 
+export const OPENCV_EFFECT: EffectDefinition = {
+  id: "opencv",
+  name: "OpenCV Vision",
+  description: "Computer-vision pipelines (edges, contours, optical flow, background subtraction, face detection) running natively via OpenCV compiled to WASM. Works on the loaded video or a live camera feed.",
+  params: [
+    { key: "mode", label: "Mode", type: "select", default: "edges", options: ["edges", "contours", "optical_flow", "bg_subtract", "face_detect"], group: "Mode" },
+    { key: "processScale", label: "Process Scale", type: "float", default: 0.5, min: 0.1, max: 1, step: 0.05, group: "Performance" },
+    { key: "mirror", label: "Mirror (front camera)", type: "bool", default: false, group: "Performance" },
+
+    // --- edges ---
+    { key: "cannyLow", label: "Canny Low", type: "float", default: 60, min: 0, max: 255, step: 1, group: "Edges" },
+    { key: "cannyHigh", label: "Canny High", type: "float", default: 160, min: 0, max: 255, step: 1, group: "Edges" },
+    { key: "blur", label: "Blur", type: "int", default: 1, min: 0, max: 10, step: 1, group: "Edges" },
+    { key: "edgeOnSource", label: "Overlay on Source", type: "bool", default: false, group: "Edges" },
+    { key: "edgeColor", label: "Edge Color", type: "color", default: "#44D4FF", group: "Edges" },
+
+    // --- contours ---
+    { key: "contourMinArea", label: "Min Area", type: "float", default: 80, min: 0, max: 5000, step: 10, group: "Contours" },
+    { key: "contourThickness", label: "Thickness", type: "int", default: 2, min: 1, max: 10, step: 1, group: "Contours" },
+    { key: "contourFill", label: "Fill", type: "bool", default: false, group: "Contours" },
+    { key: "contourColor", label: "Contour Color", type: "color", default: "#44D4FF", group: "Contours" },
+
+    // --- optical flow ---
+    { key: "flowStrength", label: "Flow Strength", type: "float", default: 1, min: 0.1, max: 3, step: 0.05, group: "Optical Flow" },
+    { key: "flowArrows", label: "Arrows (vs. color)", type: "bool", default: false, group: "Optical Flow" },
+    { key: "flowArrowStep", label: "Arrow Spacing", type: "int", default: 16, min: 4, max: 40, step: 1, group: "Optical Flow" },
+
+    // --- background subtraction ---
+    { key: "bgHistory", label: "History", type: "int", default: 120, min: 10, max: 500, step: 10, group: "Background Subtraction" },
+    { key: "bgVarThreshold", label: "Var Threshold", type: "float", default: 16, min: 4, max: 64, step: 1, group: "Background Subtraction" },
+    { key: "bgShadows", label: "Detect Shadows", type: "bool", default: true, group: "Background Subtraction" },
+    { key: "bgMaskOnly", label: "Mask Only", type: "bool", default: false, group: "Background Subtraction" },
+
+    // --- face detection ---
+    { key: "faceScaleFactor", label: "Scale Factor", type: "float", default: 1.1, min: 1.05, max: 1.4, step: 0.01, group: "Face Detection" },
+    { key: "faceMinNeighbors", label: "Min Neighbors", type: "int", default: 4, min: 1, max: 10, step: 1, group: "Face Detection" },
+    { key: "faceMinSizeFraction", label: "Min Size (% width)", type: "float", default: 0.08, min: 0.02, max: 0.5, step: 0.01, group: "Face Detection" },
+    { key: "faceBoxColor", label: "Box Color", type: "color", default: "#78FF78", group: "Face Detection" },
+    { key: "faceShowCount", label: "Show Count", type: "bool", default: true, group: "Face Detection" },
+  ],
+};
+
 export const EFFECT_DEFINITIONS: Record<EffectId, EffectDefinition> = {
   ascii: ASCII_EFFECT,
   particles: PARTICLES_EFFECT,
   crt: CRT_EFFECT,
+  opencv: OPENCV_EFFECT,
 };
 
 export function defaultParamsFor(effect: EffectId): EffectParams {

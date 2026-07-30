@@ -8,6 +8,7 @@ import {
   type ViewportOverlayStats,
 } from "@/types/effects";
 import { extractVideoFrames } from "@/lib/videoFrameExtractor";
+import { deriveTrailColor } from "@/lib/color";
 
 export type ZoomMode = "fit" | "50" | "100" | "200" | "custom";
 
@@ -59,6 +60,13 @@ interface AppState {
     error: string | null;
   };
 
+  /** Live camera feed (getUserMedia), mutually exclusive with a loaded
+   * video file — see setCameraActive/loadVideo, which clear one another.
+   * The actual MediaStream/video element lifecycle lives in
+   * src/lib/cameraCapture.ts + ViewportCanvas; the store only tracks
+   * on/off + last error for the UI. */
+  camera: { active: boolean; error: string | null };
+
   setActiveEffect: (effect: EffectId) => void;
   setParam: (effect: EffectId, key: string, value: EffectParams[string]) => void;
   resetParams: (effect: EffectId) => void;
@@ -92,6 +100,9 @@ interface AppState {
 
   loadVideo: (file: File) => Promise<void>;
   clearVideo: () => void;
+
+  setCameraActive: (active: boolean) => void;
+  setCameraError: (error: string | null) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -100,6 +111,7 @@ export const useAppStore = create<AppState>((set) => ({
     ascii: defaultParamsFor("ascii"),
     particles: defaultParamsFor("particles"),
     crt: defaultParamsFor("crt"),
+    opencv: defaultParamsFor("opencv"),
   },
 
   zoom: "fit",
@@ -120,16 +132,25 @@ export const useAppStore = create<AppState>((set) => ({
   bottomPanelOpen: true,
 
   video: { frames: null, loading: false, progress: 0, error: null },
+  camera: { active: false, error: null },
 
   setActiveEffect: (effect) => set({ activeEffect: effect }),
 
   setParam: (effect, key, value) =>
-    set((s) => ({
-      paramsByEffect: {
-        ...s.paramsByEffect,
-        [effect]: { ...s.paramsByEffect[effect], [key]: value },
-      },
-    })),
+    set((s) => {
+      const current = s.paramsByEffect[effect];
+      const next: EffectParams = { ...current, [key]: value };
+      // Mover el color de la cabeza del efecto Matrix arrastra también el
+      // color del resto de la estela (foreground), para que el conjunto
+      // siga leyéndose como un solo efecto coherente. Al revés no: mover
+      // Foreground Color a mano no toca el Head Color.
+      if (effect === "ascii" && key === "matrixHeadColor" && typeof value === "string") {
+        next.foreground = deriveTrailColor(value);
+      }
+      return {
+        paramsByEffect: { ...s.paramsByEffect, [effect]: next },
+      };
+    }),
 
   resetParams: (effect) =>
     set((s) => ({
@@ -203,7 +224,9 @@ export const useAppStore = create<AppState>((set) => ({
   toggleBottomPanel: () => set((s) => ({ bottomPanelOpen: !s.bottomPanelOpen })),
 
   loadVideo: async (file: File) => {
-    set({ video: { frames: null, loading: true, progress: 0, error: null } });
+    // Loading a video file and a live camera are mutually exclusive
+    // sources — see setCameraActive for the other direction.
+    set({ camera: { active: false, error: null }, video: { frames: null, loading: true, progress: 0, error: null } });
     try {
       const result = await extractVideoFrames(file, (done, total) => {
         set((s) => ({ video: { ...s.video, progress: total > 0 ? done / total : 0 } }));
@@ -229,6 +252,16 @@ export const useAppStore = create<AppState>((set) => ({
       video: { frames: null, loading: false, progress: 0, error: null },
       timeline: { playing: false, currentFrame: 0, durationSeconds: 10, fps: 60 },
     }),
+
+  // Actual getUserMedia/MediaStream lifecycle lives in ViewportCanvas (via
+  // src/lib/cameraCapture.ts) — this just toggles the on/off state it
+  // reacts to, and clears a loaded video since the two sources conflict.
+  setCameraActive: (active) =>
+    set((s) => ({
+      camera: { active, error: active ? null : s.camera.error },
+      video: active ? { frames: null, loading: false, progress: 0, error: null } : s.video,
+    })),
+  setCameraError: (error) => set((s) => ({ camera: { ...s.camera, active: error ? false : s.camera.active, error } })),
 }));
 
 export function useActiveParams() {

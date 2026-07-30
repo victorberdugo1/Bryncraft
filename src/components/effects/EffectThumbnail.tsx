@@ -67,6 +67,28 @@ export function EffectThumbnail({ effect, active }: EffectThumbnailProps) {
           else ctx.lineTo(x, y);
         }
         ctx.stroke();
+      } else if (effect === "opencv") {
+        // Evokes edge detection: a wireframe outline of a rotating shape on
+        // black, echoing what Canny/contours mode actually produces.
+        ctx.strokeStyle = "#78FF78";
+        ctx.lineWidth = 1.2;
+        const cx = w / 2;
+        const cy = h / 2;
+        const sides = 6;
+        const radius = Math.min(w, h) * 0.32;
+        ctx.beginPath();
+        for (let i = 0; i <= sides; i++) {
+          const a = (i / sides) * Math.PI * 2 + t;
+          const x = cx + Math.cos(a) * radius;
+          const y = cy + Math.sin(a) * radius * 0.8;
+          if (i === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+        ctx.strokeStyle = "#44D4FF";
+        ctx.beginPath();
+        ctx.rect(cx - radius * 0.55, cy - radius * 0.55, radius * 1.1, radius * 1.1);
+        ctx.stroke();
       }
 
       raf = requestAnimationFrame(draw);

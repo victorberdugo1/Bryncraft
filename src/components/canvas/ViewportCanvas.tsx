@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { useAppStore } from "@/store/useAppStore";
 import { wasmBridge } from "@/lib/wasmBridge";
 import { MockRenderer } from "@/lib/mockRenderer";
+import { CameraCapture } from "@/lib/cameraCapture";
 
 function containerPixelSize(canvas: HTMLCanvasElement) {
   // clientWidth/clientHeight reflect the untransformed CSS layout box.
@@ -29,6 +30,9 @@ export function ViewportCanvas() {
   const params = useAppStore((s) => s.paramsByEffect[s.activeEffect]);
   const setStats = useAppStore((s) => s.setStats);
   const videoFrames = useAppStore((s) => s.video.frames);
+  const cameraActive = useAppStore((s) => s.camera.active);
+  const setCameraActive = useAppStore((s) => s.setCameraActive);
+  const setCameraError = useAppStore((s) => s.setCameraError);
 
   // attach once
   useEffect(() => {
@@ -127,6 +131,60 @@ export function ViewportCanvas() {
     rendererRef.current?.setSourceFrames(videoFrames);
     wasmBridge.setVideoFrames(videoFrames);
   }, [videoFrames]);
+
+  // Camera lifecycle: mirrors the video-file effect above, but for a live
+  // getUserMedia feed instead of pre-decoded frames. Runs its own rAF loop
+  // (independent of the timeline-driven one below, since a camera has no
+  // scrub position — it just always shows "now") that pushes the current
+  // frame to whichever backend is active every tick.
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !cameraActive) return;
+
+    let cancelled = false;
+    let rafId: number | null = null;
+    const capture = new CameraCapture();
+
+    capture
+      .start()
+      .then((videoEl) => {
+        if (cancelled) return;
+        videoDimsRef.current = { width: videoEl.videoWidth, height: videoEl.videoHeight };
+        canvas.width = videoEl.videoWidth;
+        canvas.height = videoEl.videoHeight;
+        wasmBridge.setCanvasSize(videoEl.videoWidth, videoEl.videoHeight);
+        rendererRef.current?.setCameraSource(videoEl);
+
+        const tick = () => {
+          if (rendererRef.current) {
+            rendererRef.current.pushCameraFrame();
+          } else {
+            wasmBridge.pushCameraFrame(videoEl);
+          }
+          rafId = requestAnimationFrame(tick);
+        };
+        rafId = requestAnimationFrame(tick);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.error("[ViewportCanvas] camera start failed", err);
+        setCameraError(err instanceof Error ? err.message : "No se pudo acceder a la cámara");
+        setCameraActive(false);
+      });
+
+    return () => {
+      cancelled = true;
+      if (rafId !== null) cancelAnimationFrame(rafId);
+      capture.stop();
+      rendererRef.current?.setCameraSource(null);
+      wasmBridge.clearCameraFrame();
+      videoDimsRef.current = null;
+      const dims = containerPixelSize(canvas);
+      canvas.width = dims.width;
+      canvas.height = dims.height;
+      wasmBridge.setCanvasSize(dims.width, dims.height);
+    };
+  }, [cameraActive, setCameraActive, setCameraError]);
 
   // once video frames are active, drive the sampled frame from the shared
   // timeline (play/pause/scrub) instead of the renderer's own free-running clock

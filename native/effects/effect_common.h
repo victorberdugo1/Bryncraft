@@ -13,6 +13,7 @@ typedef enum {
     EFFECT_ASCII,
     EFFECT_PARTICLES,
     EFFECT_CRT,
+    EFFECT_OPENCV,
     EFFECT_COUNT
 } EffectKind;
 
@@ -20,6 +21,7 @@ static inline EffectKind EffectKindFromString(const char *name) {
     if (!name) return EFFECT_ASCII;
     if (strcmp(name, "particles") == 0) return EFFECT_PARTICLES;
     if (strcmp(name, "crt") == 0) return EFFECT_CRT;
+    if (strcmp(name, "opencv") == 0) return EFFECT_OPENCV;
     return EFFECT_ASCII;
 }
 
@@ -27,6 +29,7 @@ static inline const char *EffectKindToString(EffectKind kind) {
     switch (kind) {
         case EFFECT_PARTICLES: return "particles";
         case EFFECT_CRT: return "crt";
+        case EFFECT_OPENCV: return "opencv";
         default: return "ascii";
     }
 }

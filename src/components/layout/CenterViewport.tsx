@@ -3,7 +3,7 @@ import { ViewportCanvas } from "@/components/canvas/ViewportCanvas";
 import { useAppStore, type ZoomMode } from "@/store/useAppStore";
 import { Button } from "@/components/ui/button";
 import { ExportPanel } from "@/components/layout/ExportPanel";
-import { Download, Upload, X } from "lucide-react";
+import { Download, Upload, X, Camera, CameraOff } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const ZOOM_LEVELS: { id: ZoomMode; label: string }[] = [
@@ -27,6 +27,8 @@ export function CenterViewport() {
   const video = useAppStore((s) => s.video);
   const loadVideo = useAppStore((s) => s.loadVideo);
   const clearVideo = useAppStore((s) => s.clearVideo);
+  const camera = useAppStore((s) => s.camera);
+  const setCameraActive = useAppStore((s) => s.setCameraActive);
   const activeEffect = useAppStore((s) => s.activeEffect);
   const spawnParams = useAppStore((s) => s.paramsByEffect.particles);
   const setParam = useAppStore((s) => s.setParam);
@@ -180,13 +182,24 @@ export function CenterViewport() {
               variant="ghost"
               size="sm"
               className="gap-1.5"
-              disabled={video.loading}
+              disabled={video.loading || camera.active}
               onClick={() => fileInputRef.current?.click()}
             >
               <Upload className="h-3 w-3" />
               {video.loading ? `Cargando ${Math.round(video.progress * 100)}%` : "Cargar video"}
             </Button>
           )}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="gap-1.5"
+            disabled={video.loading}
+            onClick={() => setCameraActive(!camera.active)}
+            title={camera.active ? "Detener la cámara" : "Usar la cámara como fuente en vivo"}
+          >
+            {camera.active ? <CameraOff className="h-3 w-3" /> : <Camera className="h-3 w-3" />}
+            {camera.active ? "Detener cámara" : "Cámara"}
+          </Button>
           <ExportPanel
             trigger={
               <Button variant="accent" size="sm" className="gap-1.5">
@@ -252,6 +265,11 @@ export function CenterViewport() {
         {video.error && (
           <div className="pointer-events-none absolute right-3 top-3 max-w-xs rounded-md border border-destructive/50 bg-panel/95 px-2.5 py-2 text-[11px] text-destructive shadow-floating">
             {video.error}
+          </div>
+        )}
+        {camera.error && (
+          <div className="pointer-events-none absolute right-3 top-3 max-w-xs rounded-md border border-destructive/50 bg-panel/95 px-2.5 py-2 text-[11px] text-destructive shadow-floating">
+            {camera.error}
           </div>
         )}
       </div>

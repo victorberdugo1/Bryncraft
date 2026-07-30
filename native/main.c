@@ -14,6 +14,7 @@
 #include "effects/ascii_effect.h"
 #include "effects/particles_effect.h"
 #include "effects/crt_effect.h"
+#include "effects/opencv_effect.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -121,6 +122,7 @@ void js_set_effect_json(const char *json) {
         case EFFECT_ASCII:     AsciiEffect_SetParams(params); break;
         case EFFECT_PARTICLES: ParticlesEffect_SetParams(params); break;
         case EFFECT_CRT:       CrtEffect_SetParams(params); break;
+        case EFFECT_OPENCV:    OpencvEffect_SetParams(params); break;
         default: break;
     }
 }
@@ -337,6 +339,26 @@ static void UpdateDrawFrame(void) {
             g_presentedFrames++;
             break;
 
+        case EFFECT_OPENCV:
+            // Same DrawBaseScene-into-g_sceneTarget pattern as every other
+            // effect: OpencvEffect_Draw reads g_sceneTarget's texture (video
+            // frame or procedural placeholder) as the source Mat, runs
+            // whichever OpenCV pipeline OpencvEffect_SetParams last selected
+            // (edges/contours/optical flow/background subtraction/face
+            // detection — see native/opencv_bridge.cpp), and draws the
+            // result to the backbuffer.
+            BeginTextureMode(g_sceneTarget);
+            DrawBaseScene();
+            EndTextureMode();
+
+            BeginDrawing();
+            ClearBackground(BLANK);
+            OpencvEffect_Update(dt);
+            OpencvEffect_Draw(g_sceneTarget, g_screenW, g_screenH);
+            EndDrawing();
+            g_presentedFrames++;
+            break;
+
         default:
             break;
     }
@@ -369,6 +391,7 @@ int main(void) {
     if (g_videoTextureLoaded) UnloadTexture(g_videoTexture);
     CrtEffect_Unload();
     AsciiEffect_Unload();
+    OpencvEffect_Unload();
     UnloadRenderTexture(g_sceneTarget);
     CloseWindow();
     return 0;

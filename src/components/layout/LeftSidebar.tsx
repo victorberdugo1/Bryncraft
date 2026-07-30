@@ -3,7 +3,7 @@ import { EffectThumbnail } from "@/components/effects/EffectThumbnail";
 import { useAppStore } from "@/store/useAppStore";
 import { cn } from "@/lib/utils";
 
-const ORDER: EffectId[] = ["ascii", "particles", "crt"];
+const ORDER: EffectId[] = ["ascii", "particles", "crt", "opencv"];
 
 export function LeftSidebar() {
   const activeEffect = useAppStore((s) => s.activeEffect);

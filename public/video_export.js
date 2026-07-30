@@ -39,6 +39,14 @@
 
   // fallback paths (ffmpeg not ready during capture, or png-sequence export)
   let g_frameBlobs = [];
+  // Total de segundos que representa el exec() de ffmpeg actualmente en
+  // curso — se fija justo antes de cada llamada y es lo que el handler de
+  // progreso usa para convertir progress.time en un porcentaje. Para el
+  // encode de MOV es g_frameCount / g_frameRate (se conoce el nº de
+  // frames); para el pase de fps-fix de MP4/WebM (que parte de un blob de
+  // MediaRecorder, sin conteo de frames) se rellena con la duración
+  // sondeada del blob — ver probeBlobDuration.
+  let g_progressTotalSeconds = 0;
 
   // ----------------------------------------------------------------------
   // Status listener — purely a notification hook for the UI. It never
@@ -156,14 +164,20 @@
     g_worker.onmessage = (event) => {
       const { id, ok, result, error, progress } = event.data;
       
-      // Mensajes de progreso (sin ok/error)
-      if (progress && g_frameCount > 0) {
-        const totalSeconds = g_frameCount / g_frameRate;
+      // Mensajes de progreso (sin ok/error). ffmpeg-worker.js ahora los
+      // saca del canal nativo Module.setProgress(), no de parsear stderr
+      // (ver el comentario ahí sobre por qué el parseo nunca disparaba).
+      if (progress && g_progressTotalSeconds > 0) {
+        // Se calcula aquí a partir de progress.time (tiempo ya codificado,
+        // en segundos) en vez de usar progress.ratio directamente: ratio
+        // es la propia estimación de ffmpeg, que solo es fiable cuando
+        // conoce la duración total de antemano — no siempre cierto para
+        // una entrada de secuencia de imágenes.
         // Capped at 90: the exec() call is only the encoding step. The
         // remaining 10 points are reserved for reading the file back out of
         // ffmpeg's virtual FS and handing it to the browser.
-        const percent = Math.min(90, Math.round((progress.frame / g_frameCount) * 90));
-        reportProgress(percent, progress.time, totalSeconds);
+        const percent = Math.min(90, Math.round((progress.time / g_progressTotalSeconds) * 90));
+        reportProgress(percent, progress.time, g_progressTotalSeconds);
         return;
       }
       
@@ -670,6 +684,7 @@
       if (ready) {
         try {
           emitStatus('encoding', 'Fixing fps/duration metadata…');
+          resetProgressTracking();
           finalBlob = await this._fixFrameRateMetadata(rawBlob, mimeType, filename);
           finalMimeType = finalBlob.type;
         } catch (error) {
@@ -704,6 +719,16 @@
         const data = new Uint8Array(await blob.arrayBuffer());
         await workerCall('writeFile', { path: inputPath, data }, [data.buffer]);
 
+        // MediaRecorder output has no frame count to divide by (unlike the
+        // MOV path), so probe the actual blob duration to know how far
+        // along a given progress.time is. If probing fails for any reason
+        // (some browsers/mimeTypes don't expose duration reliably), the
+        // heartbeat below still ramps the bar so it never just sits frozen.
+        const probedDuration = await probeBlobDuration(blob);
+        g_progressTotalSeconds = probedDuration > 0 ? probedDuration : 0;
+        const heartbeatEstimate = probedDuration > 0 ? probedDuration : 8;
+        const heartbeat = startHeartbeat(heartbeatEstimate, 90);
+
         const args = wantsMp4
           ? [
               '-i', inputPath,
@@ -729,7 +754,12 @@
               '-y', outputPath
             ];
 
-        const ret = await workerCall('exec', { args });
+        let ret;
+        try {
+          ret = await workerCall('exec', { args });
+        } finally {
+          stopHeartbeat(heartbeat);
+        }
         if (ret !== 0) {
           throw new Error(`ffmpeg fps fix returned ${ret}`);
         }
@@ -834,7 +864,9 @@
         ];
 
         emitStatus('encoding', `Encoding ${g_frameCount} frames to MOV (qtrle)…`);
-        emitProgress(0, 0, g_frameCount / g_frameRate);
+        resetProgressTracking();
+        g_progressTotalSeconds = g_frameCount / g_frameRate;
+        emitProgress(0, 0, g_progressTotalSeconds);
 
         // No fake timer-based progress here: ffmpeg-worker.js already parses
         // "frame=" out of ffmpeg's own stderr and posts it back as a real

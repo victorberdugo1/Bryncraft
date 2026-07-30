@@ -8,12 +8,9 @@
 let g_module = null;
 let g_stderr = '';
 // Which exec() call (by message id) is currently running, if any — the
-// permanent printErr handler below only parses/reports progress while this
-// is set. This replaces reassigning Module.printErr per-exec() call: some
-// @ffmpeg/core builds read Module.printErr once into a local variable
-// during their own init and never look at Module.printErr again, so
-// swapping it out afterwards silently did nothing — no progress message
-// ever left the worker, and the bar sat frozen the whole encode.
+// permanent logger/progress handlers below only report progress while this
+// is set, and are installed ONCE (not reassigned per-exec()) since some
+// @ffmpeg/core builds only read these hooks once during their own init.
 let g_activeExecId = null;
 let g_lastProgressPost = 0;
 
@@ -93,36 +90,35 @@ const initPromise = (async () => {
   g_module = await createFFmpegCore({
     wasmBinary,
     locateFile: (path) => (path.endsWith('.wasm') ? '/ffmpeg/ffmpeg-core.wasm' : path),
-    // Installed ONCE, here, and never reassigned again (see the comment on
-    // g_activeExecId above for why). Gated by g_activeExecId so it's a
-    // no-op outside of an exec() call, and throttled to 4x/second so it
-    // doesn't flood postMessage on a chatty encode.
-    printErr: (text) => {
-      g_stderr += text;
-      if (g_activeExecId === null) return;
-      const now = Date.now();
-      if (now - g_lastProgressPost < 250) return;
-      g_lastProgressPost = now;
-      // IMPORTANT: use the LAST frame=/time= occurrence in the accumulated
-      // stderr, not the first. A plain (non-global) .match() always returns
-      // the earliest match in the string, so as g_stderr keeps growing
-      // through the exec() call, this kept re-reporting the very first
-      // "frame=" line ffmpeg ever logged — pinning the bar near 0% for the
-      // entire encode and only "catching up" the instant exec() resolved.
-      const frameMatches = g_stderr.match(/frame=\s*(\d+)/g);
-      const timeMatches = g_stderr.match(/time=(\d+):(\d+):(\d+\.\d+)/g);
-      if (frameMatches || timeMatches) {
-        const frame = frameMatches
-          ? parseInt(frameMatches[frameMatches.length - 1].match(/(\d+)/)[1])
-          : 0;
-        let time = 0;
-        if (timeMatches) {
-          const m = timeMatches[timeMatches.length - 1].match(/time=(\d+):(\d+):(\d+\.\d+)/);
-          time = parseInt(m[1]) * 3600 + parseInt(m[2]) * 60 + parseFloat(m[3]);
-        }
-        self.postMessage({ id: g_activeExecId, progress: { frame, time } });
-      }
-    },
+  });
+  // This @ffmpeg/core build (0.12.x) does NOT call the printErr/print
+  // options passed to createFFmpegCore() above — its own init immediately
+  // overwrites Module.print/Module.printErr with wrappers that route
+  // through Module.logger (see setLogger below), and separately exposes a
+  // native progress channel (Module.setProgress) fed directly from C via a
+  // send_progress() call on every internal progress tick. That channel is
+  // far more reliable than regex-parsing ffmpeg's stderr text (which is
+  // what a previous version of this file tried, and which silently never
+  // fired because of the above — the bar sat frozen at 0% for the whole
+  // encode). Both are installed ONCE here, never reassigned per-exec(),
+  // and gated by g_activeExecId so they're a no-op outside of an exec()
+  // call.
+  g_module.setLogger(({ message }) => {
+    g_stderr += `${message}\n`;
+  });
+  g_module.setProgress(({ progress, time }) => {
+    if (g_activeExecId === null) return;
+    const now = Date.now();
+    if (now - g_lastProgressPost < 100) return;
+    g_lastProgressPost = now;
+    // `time` is the amount of output encoded so far, in microseconds
+    // (ffmpeg.wasm convention); `progress` is ffmpeg's own 0..1 estimate,
+    // which is only meaningful when it already knows the total duration
+    // up front (not always true for an image2-sequence input) — so the
+    // percent shown to the UI is computed from elapsed time vs. the
+    // known total (g_frameCount / g_frameRate) on the main thread instead
+    // of trusted blindly here; this just forwards the raw numbers.
+    self.postMessage({ id: g_activeExecId, progress: { time: time / 1e6, ratio: progress } });
   });
 })();
 

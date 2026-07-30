@@ -204,29 +204,61 @@ class WasmBridge {
     }
     ctx.drawImage(bitmap, 0, 0);
     const { data } = ctx.getImageData(0, 0, bitmap.width, bitmap.height);
+    this.uploadRgbaToNative(data, bitmap.width, bitmap.height);
+  }
 
-    // ccall's "array" param type stack-allocates the buffer (stackAlloc) —
-    // the wasm stack is only a few hundred KB, nowhere near enough for a
-    // decoded video frame (e.g. 1280x720x4 ≈ 3.6MB RGBA), so it overflowed
-    // with "offset is out of bounds" / "memory access out of bounds".
-    // Heap-allocate instead: malloc a buffer, copy into it via HEAPU8,
-    // pass the pointer, then free it right after the (synchronous) call.
-    if (!this.module.HEAPU8) return;
+  /** Shared by setVideoFrameIndex and pushCameraFrame — both end up with a
+   * decoded RGBA8 buffer + dimensions that need to reach js_set_video_frame
+   * the same way. See setVideoFrameIndex's comment for why this heap-
+   * allocates (via malloc) instead of using ccall's "array" param type. */
+  private uploadRgbaToNative(data: Uint8ClampedArray, width: number, height: number) {
+    if (!this.module?.HEAPU8) return;
     const ccall = this.module.ccall;
     if (!ccall) return;
     const ptr = ccall("malloc", "number", ["number"], [data.byteLength]) as number;
     if (!ptr) return;
     try {
       this.module.HEAPU8.set(data, ptr);
-      ccall(
-        "js_set_video_frame",
-        "void",
-        ["number", "number", "number"],
-        [ptr, bitmap.width, bitmap.height]
-      );
+      ccall("js_set_video_frame", "void", ["number", "number", "number"], [ptr, width, height]);
     } finally {
       ccall("free", "void", ["number"], [ptr]);
     }
+  }
+
+  /** Draws a live <video> element's current frame (fed by getUserMedia —
+   * see src/lib/cameraCapture.ts) and pushes it into the native texture via
+   * the exact same js_set_video_frame bridge used for decoded video-file
+   * frames. main.c has no idea, and no need to know, whether a frame came
+   * from a camera or a loaded file. Called once per rAF tick from
+   * ViewportCanvas while the camera is active; a no-op outside wasm mode. */
+  pushCameraFrame(videoEl: HTMLVideoElement) {
+    if (this.mode !== "wasm" || !this.module) return;
+    if (videoEl.readyState < 2 || !videoEl.videoWidth || !videoEl.videoHeight) return; // not enough data yet
+
+    if (!this.videoFrameCanvas) {
+      this.videoFrameCanvas = document.createElement("canvas");
+      this.videoFrameCtx = this.videoFrameCanvas.getContext("2d", { willReadFrequently: true });
+    }
+    const canvas = this.videoFrameCanvas;
+    const ctx = this.videoFrameCtx;
+    if (!ctx) return;
+
+    if (canvas.width !== videoEl.videoWidth || canvas.height !== videoEl.videoHeight) {
+      canvas.width = videoEl.videoWidth;
+      canvas.height = videoEl.videoHeight;
+    }
+    ctx.drawImage(videoEl, 0, 0);
+    const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    this.uploadRgbaToNative(data, canvas.width, canvas.height);
+  }
+
+  /** Counterpart to pushCameraFrame — clears the native video texture when
+   * the camera stops. Deliberately separate from setVideoFrames(null): the
+   * camera never populates this.videoFrames, so reusing that setter would
+   * be misleading about what's actually being cleared. */
+  clearCameraFrame() {
+    if (this.mode !== "wasm" || !this.module) return;
+    this.module.ccall?.("js_clear_video_frame", "void", [], []);
   }
 
   async startRecording(width: number, height: number, fps: number, format: ExportFormat): Promise<boolean> {

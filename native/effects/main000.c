@@ -1,7 +1,8 @@
-// main000.c — minimal standalone example: ASCII Renderer
-// Only native/effects/ascii_effect.h is needed (plus raylib.h).
+// main000.c — minimal example: ASCII Renderer
+// Only libraylib.a , raylib.h & ascii_effect.h is needed.
 //
-// gcc -o ascii_demo.exe main000.c -I. -I./native/effects -L. -lraylib -lgdi32 -lwinmm
+// gcc main000.c -o ascii_demo.exe -L. -lraylib -lgdi32 -lwinmm
+// gcc main000.c -o ascii_demo -L. -lraylib -lm -lpthread -ldl -lrt -lX11
 
 #include "raylib.h"
 #include "ascii_effect.h"
@@ -20,11 +21,12 @@ int main(void)
     {
         float dt = GetFrameTime();
 
-        // Anything can be drawn into 'scene' — this is just a placeholder shape.
+        /*/ Start scene placeholder. /*/
         BeginTextureMode(scene);
             ClearBackground(DARKGRAY);
             DrawCircle(screenW / 2, screenH / 2, 120, RED);
         EndTextureMode();
+	/*/ End scene placeholder. /*/
 
         AsciiEffect_Update(dt);
 
