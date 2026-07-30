@@ -359,7 +359,8 @@ static cv::Mat RunFaceDetect(const cv::Mat &frame) {
                     if (!g_faceCascadeOk) {
                         fprintf(stderr, "[face_detect] Failed to load cascade from buffer (returned false)\n");
                     } else {
-                        fprintf(stderr, "[face_detect] Cascade loaded from JS buffer successfully\n");
+                        // stdout, not stderr — success, not an error (see js_set_cascade_data below)
+                        printf("[face_detect] Cascade loaded from JS buffer successfully\n");
                     }
                 } else {
                     fprintf(stderr, "[face_detect] Failed to write cascade buffer to /tmp\n");
@@ -538,7 +539,11 @@ extern "C" {
             if (g_cascadeBuffer) {
                 memcpy(g_cascadeBuffer, buf, bufSize);
                 g_cascadeBufferSize = bufSize;
-                fprintf(stderr, "[face_detect] Cascade data received: %zu bytes\n", bufSize);
+                // stdout (not stderr) — this is a success confirmation, not an
+                // error. Emscripten maps stderr writes to console.error, which
+                // renders red in the browser regardless of the message content;
+                // stdout maps to console.log instead.
+                printf("[face_detect] Cascade data received: %zu bytes\n", bufSize);
                 // Reset attempted flag so next frame retries loading
                 g_faceCascadeAttempted = false;
                 g_faceCascadeOk = false;

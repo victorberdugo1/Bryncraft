@@ -1,26 +1,42 @@
 /**
- * cascadeLoader.ts — Load Haar cascade XML from Emscripten FS and pass to WASM
- * 
- * El cascade está empaquetado en index.data por --preload-file assets
- * y es accesible en el FS virtual de WASM como /assets/cv/haarcascade_frontalface_default.xml
- * 
- * Si falla (corrupt/truncado), face_detect simplemente hace passthrough (no crashea).
+ * cascadeLoader.ts — Load Haar cascade XML and pass it to WASM
+ *
+ * Se trae por fetch() desde public/assets/cv/... (archivo estático servido
+ * tal cual por Vite/nginx) — NO desde el FS virtual de Emscripten. Leerlo
+ * vía Module.FS.readFile() requeriría que 'FS' esté en
+ * EXPORTED_RUNTIME_METHODS del build de native/Makefile, un export fácil de
+ * perder entre rebuilds; fetch() solo depende de que el archivo esté en
+ * public/assets, que es un requisito mucho más simple de garantizar.
+ *
+ * Solo Module._js_set_cascade_data (+ _malloc/_free/HEAPU8, ya presentes)
+ * necesita estar exportado del lado wasm.
+ *
+ * Si falla (corrupt/truncado/404), face_detect simplemente hace passthrough
+ * (no crashea).
  */
 
 declare const Module: any; // Emscripten Module
 
 /**
- * Read cascade XML from Emscripten FS and pass it to WASM's js_set_cascade_data()
- * 
- * Si el cascade está corrupto/truncado, no throws — simplemente devuelve false
- * y face_detect modo funciona como passthrough (copia frame sin procesar).
+ * Fetch cascade XML from public/assets and pass it to WASM's js_set_cascade_data()
+ *
+ * Si el cascade está corrupto/truncado/inaccesible, no throws — simplemente
+ * devuelve y face_detect funciona como passthrough (copia frame sin procesar).
  */
 export async function initCascadeData(): Promise<void> {
   const cascadePath = '/assets/cv/haarcascade_frontalface_default.xml';
 
   try {
-    // Intenta cargar desde FS virtual
-    const cascadeData = Module.FS.readFile(cascadePath);
+    // Trae el archivo estático servido por Vite/nginx (no el FS virtual de wasm)
+    const response = await fetch(cascadePath);
+    if (!response.ok) {
+      console.warn(
+        `[Bryncraft] Cascade fetch failed: HTTP ${response.status} for ${cascadePath}. ` +
+        `face_detect desactivado (passthrough).`
+      );
+      return;
+    }
+    const cascadeData = new Uint8Array(await response.arrayBuffer());
 
     console.log(`[Bryncraft] Cascade read: ${cascadeData.length} bytes`);
 
