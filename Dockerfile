@@ -10,19 +10,24 @@ COPY native/ .
 # El Makefile de native/ instala su propio emsdk si no encuentra emcc en
 # EMSDK_DIR=emsdk; como esta imagen ya trae el SDK activado, lo enlazamos
 # para que el check de instalación pase y no reinstale nada.
-RUN ln -s "${EMSDK}" emsdk
+RUN rm -rf emsdk && ln -s "${EMSDK}" emsdk
 
-# `copy` arrastra todo el grafo de dependencias (copy -> all -> check ->
-# raylib, ffmpeg). Ojo: el Makefile tiene .DEFAULT_GOAL := help, por eso
-# nunca se invoca `make` a secas, siempre un target explícito.
-RUN make copy DEST=/build/public/wasm
+# `make clean && make all` fuerza una regeneración completa de index.data
+# antes de `make copy`. Sin esto, un index.data viejo (p.ej. de un build
+# anterior sin el cascade haarcascade_frontalface_default.xml en
+# assets/cv/) puede sobrevivir intacto si Docker reutiliza la capa, y
+# `make copy` simplemente lo empaqueta tal cual sin regenerarlo — el
+# síntoma es el error OpenCV "(-5:Bad argument) Input file is invalid"
+# en runtime porque el cascade nunca llegó al virtual FS de Emscripten.
+RUN make clean && make all && make copy DEST=/build/public/wasm
 
 # index.data es el paquete generado por --preload-file assets (contiene
-# assets/shaders/crt.fs). Es el único de los archivos copiados que un efecto
-# (CRT) necesita en runtime pero que ASCII/Partículas nunca tocan — así que
-# si falta, el build sigue "funcionando" a medias sin que nada lo delate
-# hasta que alguien abre el efecto CRT y ve un error de shader que en
-# realidad es un 404 disfrazado. Falla aquí, no en el navegador.
+# assets/shaders/crt.fs y assets/cv/haarcascade_frontalface_default.xml).
+# Son de los archivos copiados que un efecto (CRT, face_detect) necesita
+# en runtime pero que ASCII/Partículas nunca tocan — así que si falta,
+# el build sigue "funcionando" a medias sin que nada lo delate hasta que
+# alguien abre el efecto y ve un error que en realidad es un 404 o un
+# archivo faltante disfrazado. Falla aquí, no en el navegador.
 RUN test -s /build/public/wasm/index.data || \
     (echo "ERROR: index.data missing after 'make copy' — check native/Makefile's" \
           "LDFLAGS still has --preload-file assets, and that the assets/ dir" \

@@ -342,7 +342,25 @@ static cv::Mat RunFaceDetect(const cv::Mat &frame) {
         g_faceCascadeAttempted = true;
         // Preloaded by Emscripten's --preload-file assets (see Makefile) —
         // lands in the virtual FS at this same relative path.
-        g_faceCascadeOk = g_faceCascade.load("assets/cv/haarcascade_frontalface_default.xml");
+        //
+        // CascadeClassifier::load() is documented to return false on failure,
+        // but if the file isn't actually there in the virtual FS (stale
+        // build/.data, browser cache serving an old bundle, etc.) the
+        // underlying FileStorage::open() can throw cv::Exception instead of
+        // returning cleanly. Catch it explicitly so a missing/corrupt asset
+        // still degrades to passthrough instead of an uncaught JS exception.
+        try {
+            const char *cascadePath = "assets/cv/haarcascade_frontalface_default.xml";
+            g_faceCascadeOk = g_faceCascade.load(cascadePath);
+            if (!g_faceCascadeOk) {
+                fprintf(stderr, "[face_detect] Failed to load cascade at: %s (returned false)\n", cascadePath);
+            } else {
+                fprintf(stderr, "[face_detect] Cascade loaded successfully: %s\n", cascadePath);
+            }
+        } catch (const cv::Exception &e) {
+            fprintf(stderr, "[face_detect] cv::Exception loading cascade: %s\n", e.what());
+            g_faceCascadeOk = false;
+        }
     }
 
     cv::Mat out = frame.clone();
