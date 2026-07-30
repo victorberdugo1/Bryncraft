@@ -1,4 +1,5 @@
 import type { EffectParams, RenderMessage, ViewportOverlayStats, ExportFormat } from "@/types/effects";
+import { initCascadeData } from "@/utils/cascadeLoader";
 
 /**
  * Contract expected from the compiled native/ Raylib+Emscripten module
@@ -92,7 +93,10 @@ class WasmBridge {
     return new Promise((resolve) => {
       window.Module = {
         canvas,
-        onRuntimeInitialized: () => {
+        onRuntimeInitialized: async () => {
+          // Load Haar cascade XML from JavaScript before any face_detect calls
+          await initCascadeData();
+          
           this.module = window.Module ?? null;
           this.ready = true;
           this.mode = "wasm";

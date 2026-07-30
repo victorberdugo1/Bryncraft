@@ -112,6 +112,10 @@ static bool g_faceCascadeAttempted = false;
 static bool g_faceCascadeOk = false;
 static std::vector<cv::Rect> g_lastFaces;
 
+// Cascade data passed from JavaScript via js_set_cascade_data()
+static uint8_t *g_cascadeBuffer = NULL;
+static size_t g_cascadeBufferSize = 0;
+
 static int g_frameCounter = 0;
 
 // ============================================================================
@@ -340,22 +344,28 @@ static cv::Mat RunBgSubtract(const cv::Mat &frame) {
 static cv::Mat RunFaceDetect(const cv::Mat &frame) {
     if (!g_faceCascadeAttempted) {
         g_faceCascadeAttempted = true;
-        // Preloaded by Emscripten's --preload-file assets (see Makefile) —
-        // lands in the virtual FS at this same relative path.
-        //
-        // CascadeClassifier::load() is documented to return false on failure,
-        // but if the file isn't actually there in the virtual FS (stale
-        // build/.data, browser cache serving an old bundle, etc.) the
-        // underlying FileStorage::open() can throw cv::Exception instead of
-        // returning cleanly. Catch it explicitly so a missing/corrupt asset
-        // still degrades to passthrough instead of an uncaught JS exception.
+        // Cascade data must be passed from JavaScript via js_set_cascade_data()
+        // This avoids Emscripten's fragile --preload-file filesystem mounting.
+        // JavaScript fetches the XML and passes its buffer directly to WASM.
         try {
-            const char *cascadePath = "assets/cv/haarcascade_frontalface_default.xml";
-            g_faceCascadeOk = g_faceCascade.load(cascadePath);
-            if (!g_faceCascadeOk) {
-                fprintf(stderr, "[face_detect] Failed to load cascade at: %s (returned false)\n", cascadePath);
+            if (g_cascadeBuffer && g_cascadeBufferSize > 0) {
+                // Create a temporary in-memory XML file by writing to /tmp
+                FILE *tmpFile = fopen("/tmp/cascade.xml", "wb");
+                if (tmpFile) {
+                    fwrite(g_cascadeBuffer, 1, g_cascadeBufferSize, tmpFile);
+                    fclose(tmpFile);
+                    
+                    g_faceCascadeOk = g_faceCascade.load("/tmp/cascade.xml");
+                    if (!g_faceCascadeOk) {
+                        fprintf(stderr, "[face_detect] Failed to load cascade from buffer (returned false)\n");
+                    } else {
+                        fprintf(stderr, "[face_detect] Cascade loaded from JS buffer successfully\n");
+                    }
+                } else {
+                    fprintf(stderr, "[face_detect] Failed to write cascade buffer to /tmp\n");
+                }
             } else {
-                fprintf(stderr, "[face_detect] Cascade loaded successfully: %s\n", cascadePath);
+                fprintf(stderr, "[face_detect] Cascade buffer not set. Call js_set_cascade_data() from JavaScript first.\n");
             }
         } catch (const cv::Exception &e) {
             fprintf(stderr, "[face_detect] cv::Exception loading cascade: %s\n", e.what());
@@ -364,7 +374,7 @@ static cv::Mat RunFaceDetect(const cv::Mat &frame) {
     }
 
     cv::Mat out = frame.clone();
-    if (!g_faceCascadeOk) return out; // asset missing — passthrough, never crash
+    if (!g_faceCascadeOk) return out; // cascade missing/failed — passthrough, never crash
 
     // Haar cascades are the most expensive pipeline here; detect on a
     // throttle and keep drawing the last known boxes in between so the
@@ -503,4 +513,38 @@ void OpencvEffect_Unload(void) {
     g_lastFlowVis.release();
     g_bgSub.release();
     g_lastFaces.clear();
+}
+
+// ============================================================================
+// CASCADE DATA RECEIVER (called from JavaScript)
+// ============================================================================
+// JavaScript fetches the cascade XML and passes it here as a byte buffer.
+// This avoids Emscripten's --preload-file fragility.
+//
+// Usage from JS (via wasmBridge.ts):
+//   fetch('/path/to/haarcascade_frontalface_default.xml')
+//     .then(r => r.arrayBuffer())
+//     .then(buf => Module.ccall('js_set_cascade_data', null, 
+//             ['number', 'number'], [buf.byteLength, new Uint8Array(buf)]))
+//
+extern "C" {
+    void js_set_cascade_data(size_t bufSize, uint8_t *buf) {
+        if (g_cascadeBuffer) free(g_cascadeBuffer);
+        g_cascadeBuffer = NULL;
+        g_cascadeBufferSize = 0;
+        
+        if (bufSize > 0 && buf) {
+            g_cascadeBuffer = (uint8_t *)malloc(bufSize);
+            if (g_cascadeBuffer) {
+                memcpy(g_cascadeBuffer, buf, bufSize);
+                g_cascadeBufferSize = bufSize;
+                fprintf(stderr, "[face_detect] Cascade data received: %zu bytes\n", bufSize);
+                // Reset attempted flag so next frame retries loading
+                g_faceCascadeAttempted = false;
+                g_faceCascadeOk = false;
+            } else {
+                fprintf(stderr, "[face_detect] Failed to allocate memory for cascade buffer\n");
+            }
+        }
+    }
 }

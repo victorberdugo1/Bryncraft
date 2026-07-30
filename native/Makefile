@@ -69,8 +69,8 @@ EFFECT_HEADERS := $(wildcard effects/*.h)
 ASSET_FILES := $(shell find $(ASSETS_DIR) -type f 2>/dev/null)
 
 # Functions/runtime methods React's wasmBridge.ts calls via Module.ccall(...)
-EXPORTED_FUNCS    := ['_js_set_effect_json','_js_get_stats_json','_js_start_export','_js_stop_export','_js_set_video_frame','_js_clear_video_frame','_js_set_canvas_size','_js_lock_frame_capture','_js_unlock_frame_capture','_js_get_presented_frame_count','_malloc','_free','_main']
-EXPORTED_RUNTIME  := ['ccall','cwrap','HEAPU8']
+EXPORTED_FUNCS    := ['_js_set_effect_json','_js_get_stats_json','_js_start_export','_js_stop_export','_js_set_video_frame','_js_clear_video_frame','_js_set_canvas_size','_js_lock_frame_capture','_js_unlock_frame_capture','_js_get_presented_frame_count','_js_set_cascade_data','_malloc','_free','_main']
+EXPORTED_RUNTIME  := ['ccall','cwrap','HEAPU8','FS']
 
 DEST ?= ../public/wasm
 PRE_JS := pre.js
