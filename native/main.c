@@ -345,7 +345,8 @@ static void UpdateDrawFrame(void) {
             // frame or procedural placeholder) as the source Mat, runs
             // whichever OpenCV pipeline OpencvEffect_SetParams last selected
             // (edges/contours/optical flow/background subtraction/face
-            // detection — see native/opencv_bridge.cpp), and draws the
+            // detection — see effects/opencv_effect.h's implementation
+            // section), and draws the
             // result to the backbuffer.
             BeginTextureMode(g_sceneTarget);
             DrawBaseScene();

@@ -5,7 +5,7 @@ import type { EffectId, EffectParams } from "@/types/effects";
 import asciiHeaderRaw from "../../native/effects/ascii_effect.h?raw";
 import crtHeaderRaw from "../../native/effects/crt_effect.h?raw";
 import particlesHeaderRaw from "../../native/effects/particles_effect.h?raw";
-import opencvBridgeRaw from "../../native/opencv_bridge.cpp?raw";
+import opencvHeaderRaw from "../../native/effects/opencv_effect.h?raw";
 
 import main000Raw from "../../native/effects/main000.c?raw";
 import main001Raw from "../../native/effects/main001.c?raw";
@@ -64,6 +64,14 @@ const PARTICLE_MODE_ENUM: Record<string, string> = {
   embers: "PART_MODE_EMBERS",
 };
 
+const OPENCV_MODE_ENUM: Record<string, string> = {
+  edges: "OCV_MODE_EDGES",
+  contours: "OCV_MODE_CONTOURS",
+  optical_flow: "OCV_MODE_FLOW",
+  bg_subtract: "OCV_MODE_BG",
+  face_detect: "OCV_MODE_FACE",
+};
+
 /* ============================================================================
  * Cada *_g_params se reemplaza en el texto real del .h por una regex que
  * localiza únicamente ese bloque (static ... = { ... };). Todo lo demás del
@@ -73,6 +81,7 @@ const PARTICLE_MODE_ENUM: Record<string, string> = {
 const ASCII_PARAMS_RE = /static ASCII_Params ASCII_g_params = \{[\s\S]*?\};\r?\n/;
 const CRT_PARAMS_RE = /static CRT_Params CRT_g_params = \{[\s\S]*?\};\r?\n/;
 const PART_PARAMS_RE = /static PART_ParticleParams PART_g_params = \{[\s\S]*?\};\r?\n/;
+const OCV_PARAMS_RE = /static OcvParams g_params = \{[\s\S]*?\};\r?\n/;
 
 function buildAsciiParamsBlock(params: EffectParams): string {
   return `static ASCII_Params ASCII_g_params = {
@@ -133,6 +142,45 @@ function buildParticlesParamsBlock(params: EffectParams): string {
 `;
 }
 
+function hexToColorLiteral(hex: string) {
+  return `(Color){ ${hexToRgbComment(String(hex))}, 255 }`;
+}
+
+function buildOpencvParamsBlock(params: EffectParams): string {
+  return `static OcvParams g_params = {
+    .mode = ${OPENCV_MODE_ENUM[String(params.mode)] ?? "OCV_MODE_EDGES"},
+    .processScale = ${fmtFloat(params.processScale)},
+    .mirror = ${params.mirror ? "true" : "false"},
+
+    .cannyLow = ${fmtFloat(params.cannyLow)},
+    .cannyHigh = ${fmtFloat(params.cannyHigh)},
+    .blur = ${fmtInt(params.blur)},
+    .edgeOnSource = ${params.edgeOnSource ? "true" : "false"},
+    .edgeColor = ${hexToColorLiteral(String(params.edgeColor))},
+
+    .contourMinArea = ${fmtFloat(params.contourMinArea)},
+    .contourThickness = ${fmtInt(params.contourThickness)},
+    .contourFill = ${params.contourFill ? "true" : "false"},
+    .contourColor = ${hexToColorLiteral(String(params.contourColor))},
+
+    .flowStrength = ${fmtFloat(params.flowStrength)},
+    .flowArrows = ${params.flowArrows ? "true" : "false"},
+    .flowArrowStep = ${fmtInt(params.flowArrowStep)},
+
+    .bgHistory = ${fmtInt(params.bgHistory)},
+    .bgVarThreshold = ${fmtFloat(params.bgVarThreshold)},
+    .bgShadows = ${params.bgShadows ? "true" : "false"},
+    .bgMaskOnly = ${params.bgMaskOnly ? "true" : "false"},
+
+    .faceScaleFactor = ${fmtFloat(params.faceScaleFactor)},
+    .faceMinNeighbors = ${fmtInt(params.faceMinNeighbors)},
+    .faceMinSizeFraction = ${fmtFloat(params.faceMinSizeFraction)},
+    .faceBoxColor = ${hexToColorLiteral(String(params.faceBoxColor))},
+    .faceShowCount = ${params.faceShowCount ? "true" : "false"},
+};
+`;
+}
+
 /** native/effects/${effect}_effect.h real, con ASCII_g_params / CRT_g_params /
  * PART_g_params sustituido por el estado actual del Inspector. Todo lo demás
  * es el archivo tal cual está en disco — no hay una segunda copia mantenida
@@ -146,14 +194,13 @@ export function generateEffectHeader(effect: EffectId, params: EffectParams): st
     case "crt":
       return crtHeaderRaw.replace(CRT_PARAMS_RE, buildCrtParamsBlock(params));
     case "opencv":
-      // opencv_bridge.cpp's OcvParams uses per-field default member
-      // initializers (C++ struct syntax), not the single
-      // `static X_Params X_g_params = { ... };` block the other three
-      // effects use — there's no equivalent single block to regex-replace
-      // with the Inspector's current values, so this just shows the real
-      // file as-is rather than a partially-live substitution that would
-      // only cover some fields and silently miss others.
-      return opencvBridgeRaw;
+      // effects/opencv_effect.h ahora es single-header (estilo stb_image.h):
+      // arriba las declaraciones planas en C que main.c parsea, y debajo,
+      // tras OPENCV_EFFECT_IMPLEMENTATION, el OcvParams/pipelines reales en
+      // C++. Un único bloque `static OcvParams g_params = { ... };` (mismo
+      // formato que ASCII_g_params/CRT_g_params/PART_g_params) permite
+      // sustituirlo por regex igual que en los otros tres efectos.
+      return opencvHeaderRaw.replace(OCV_PARAMS_RE, buildOpencvParamsBlock(params));
   }
 }
 
@@ -186,8 +233,8 @@ export function generateShaderSnippet(effect: EffectId): string {
   if (effect === "opencv") {
     return `// opencv runs entirely on the CPU via OpenCV (Canny/contours/optical flow/
 // background subtraction/Haar cascades) — no fragment shader involved.
-// See native/opencv_bridge.cpp (the actual pipeline) and
-// native/effects/opencv_effect.h (the C-callable interface main.c uses).`;
+// See native/effects/opencv_effect.h (single-header: plain-C interface at
+// the top, real OpenCV pipeline below OPENCV_EFFECT_IMPLEMENTATION).`;
   }
   if (effect !== "crt") {
     return `// ${effect} runs on the CPU/immediate-mode raylib API — no fragment shader needed.
@@ -233,7 +280,7 @@ en native/main.c.
 
   native/effects/${effect}_effect.h
       ${effect === "opencv"
-        ? "Interfaz C que expone el efecto a main.c (SetParams/Update/Draw/Unload).\n      La implementación real (OpenCV) vive en native/opencv_bridge.cpp — ver\n      la pestaña \"Code\" para ese archivo completo."
+        ? "Single-header: la interfaz C que expone el efecto a main.c\n      (SetParams/Update/Draw/Unload) y la implementación real (OpenCV)\n      viven las dos en este mismo archivo — ver la pestaña \"Code\" para\n      el archivo completo, con los valores actuales del Inspector ya\n      sustituidos en el bloque g_params."
         : "Simulación + dibujado de este efecto (ver la pestaña \"Code\" para\n      el header exacto con los valores actuales del Inspector)."}
 
   native/effects/${MAIN_BY_EFFECT[effect].filename}

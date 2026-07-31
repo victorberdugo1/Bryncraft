@@ -15,7 +15,9 @@ RAYLIB_CONFIG   := $(RAYLIB_SRC)/config.h
 # === OpenCV (wasm static libs, for the "opencv" effect) ===
 # Built from source with the Emscripten toolchain via CMake — NOT the
 # embind-wrapped opencv.js bundle (platforms/js/build_js.py); we want plain
-# static libs to link directly into opencv_bridge.cpp. Trimmed to only the
+# static libs to link directly into effects/opencv_effect.h's implementation
+# section (compiled straight from the .h — see OPENCV_OBJ below, no separate
+# .cpp). Trimmed to only the
 # modules the effect actually uses (core/imgproc/video/objdetect) via
 # BUILD_LIST, with codecs/GUI/hardware backends we never touch switched
 # off — that's most of what keeps this from being a multi-hour build.
@@ -52,10 +54,16 @@ OUT_WASM := $(TARGET).wasm
 OUT_DATA := $(TARGET).data
 OUTPUTS  := $(OUT_HTML) $(OUT_JS) $(OUT_WASM) $(OUT_DATA)
 
-SRC_C   := main.c json_mini.c
-SRC_CXX := opencv_bridge.cpp
-SRC     := $(SRC_C) $(SRC_CXX)
-OBJ     := $(SRC_C:.c=.o) $(SRC_CXX:.cpp=.o)
+SRC_C     := main.c json_mini.c
+# No SRC_CXX / trampoline .cpp: effects/opencv_effect.h is compiled AS a C++
+# translation unit directly (see the OPENCV_OBJ rule below), via `-x c++`
+# forcing the language regardless of the .h extension. That's still a C++
+# compile of OpenCV's C++-only API -- unavoidable, since OpenCV has no C
+# API -- it just means there's no separate .cpp file left to maintain.
+OPENCV_HEADER := effects/opencv_effect.h
+OPENCV_OBJ    := opencv_effect.o
+SRC       := $(SRC_C) $(OPENCV_HEADER)
+OBJ       := $(SRC_C:.c=.o) $(OPENCV_OBJ)
 ASSETS_DIR := assets
 SHELL_FILE := shell.html
 VIDEO_EXPORT := video_export_emscripten.js
@@ -76,7 +84,7 @@ DEST ?= ../public/wasm
 PRE_JS := pre.js
 
 CFLAGS   := -Os -Wall -DPLATFORM_WEB -I. -I$(RAYLIB_SRC) -I$(OPENCV_INCLUDE)
-CXXFLAGS := $(CFLAGS) -std=c++17
+CXXFLAGS := $(CFLAGS) -std=c++20
 LDFLAGS := ./$(RAYLIB_LIB) \
            -s USE_GLFW=3 \
            -s GL_ENABLE_GET_PROC_ADDRESS=1 \
@@ -181,7 +189,7 @@ raylib: emsdk
 # single OpenCV/emsdk pin that's reliably compatible. Turning off the
 # intrinsics dispatch entirely sidesteps that whole fragile path — a real
 # speed cost, but we already run at reduced processScale with per-mode
-# frame throttling (see opencv_bridge.cpp), so correctness/build-stability
+# frame throttling (see effects/opencv_effect.h), so correctness/build-stability
 # matters more here than squeezing out SIMD.
 
 opencv: emsdk
@@ -247,22 +255,29 @@ ffmpeg: $(FFMPEG_TARGETS)
 check: raylib ffmpeg opencv
 
 # Compile phase — kept as separate objects (instead of the previous
-# single "emcc $(SRC) -o $(OUT_HTML)" one-shot) because opencv_bridge.cpp
-# needs a C++ frontend and the rest of the sources don't. Each source only
-# rebuilds when it, a shared header, or (for opencv_bridge.cpp) OpenCV
-# itself changes.
+# single "emcc $(SRC) -o $(OUT_HTML)" one-shot) because opencv_effect.h's
+# implementation section needs a C++ frontend and the rest of the sources
+# don't. Each source only rebuilds when it, a shared header, or (for
+# OPENCV_OBJ) OpenCV itself changes.
 %.o: %.c json_mini.h effects/effect_common.h $(EFFECT_HEADERS)
 	@echo "[build] Compiling $< (C)..."
 	$(call WITH_EMSDK,$(EMCC) $(CFLAGS) -c $< -o $@)
 
-%.o: %.cpp json_mini.h effects/effect_common.h $(EFFECT_HEADERS)
-	@echo "[build] Compiling $< (C++)..."
-	$(call WITH_EMSDK,$(EMXX) $(CXXFLAGS) -c $< -o $@)
+# effects/opencv_effect.h has no matching .cpp — it's compiled directly as
+# its own C++ translation unit. `-x c++` forces the C++ frontend regardless
+# of the .h extension, and -DOPENCV_EFFECT_IMPLEMENTATION unlocks the real
+# OpenCV pipeline further down in that same file (see the big #if guard
+# there) instead of just the plain-C declarations main.c sees. This is the
+# ONLY reason em++ is invoked anywhere in this build — OpenCV has no C API
+# — but it no longer needs a dedicated .cpp file to do it from.
+$(OPENCV_OBJ): $(OPENCV_HEADER) json_mini.h effects/effect_common.h $(EFFECT_HEADERS)
+	@echo "[build] Compiling $(OPENCV_HEADER) directly (C++, implementation section)..."
+	$(call WITH_EMSDK,$(EMXX) $(CXXFLAGS) -DOPENCV_EFFECT_IMPLEMENTATION -x c++ -c $(OPENCV_HEADER) -o $(OPENCV_OBJ))
 
 # Order-only prerequisite: guarantees `check` (raylib/ffmpeg/opencv) has
 # fully run before any $(OBJ) is built, even under `make -jN`, where
 # sibling prerequisites of $(OUT_HTML) could otherwise be attempted
-# concurrently — opencv_bridge.o would then fail with "no rule to make
+# concurrently — $(OPENCV_OBJ) would then fail with "no rule to make
 # target opencv_build/install/lib/libopencv_core.a" the first time (no
 # rule directly produces that exact path; it only exists as a side effect
 # of the `opencv` recipe). Order-only (the `|`) avoids forcing every

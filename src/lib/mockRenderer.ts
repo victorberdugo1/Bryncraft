@@ -47,6 +47,16 @@ export class MockRenderer {
   private matrixCols = 0;
   private matrixRows = 0;
   private matrixColLumaPrev: number[] = [];
+  // Canvas offscreen de readback para renderAscii/renderAsciiMatrix — se
+  // recreaba con document.createElement("canvas") en CADA frame antes de
+  // este cambio, aunque cols/rows casi nunca varían entre frames (solo
+  // cambian con el tamaño del viewport/fuente). Se cachea y solo se
+  // recrea cuando cols/rows realmente cambian, igual que ya se hacía para
+  // this.matrixStreams más abajo.
+  private asciiOffCanvas: HTMLCanvasElement | null = null;
+  private asciiOffCtx: CanvasRenderingContext2D | null = null;
+  private asciiOffW = 0;
+  private asciiOffH = 0;
   private frame = 0;
   // requestAnimationFrame-based scheduling — the browser's smoothest option
   // while the tab is visible — but it is fully suspended by every major
@@ -286,10 +296,15 @@ export class MockRenderer {
     const cols = Math.max(1, Math.floor(w / fontSize));
     const rows = Math.max(1, Math.floor(h / fontSize));
 
-    const off = document.createElement("canvas");
-    off.width = cols;
-    off.height = rows;
-    const octx = off.getContext("2d")!;
+    if (!this.asciiOffCanvas || this.asciiOffW !== cols || this.asciiOffH !== rows) {
+      this.asciiOffCanvas = document.createElement("canvas");
+      this.asciiOffCanvas.width = cols;
+      this.asciiOffCanvas.height = rows;
+      this.asciiOffCtx = this.asciiOffCanvas.getContext("2d")!;
+      this.asciiOffW = cols;
+      this.asciiOffH = rows;
+    }
+    const octx = this.asciiOffCtx!;
     const source = this.currentSourceFrame;
     
     if (source) {
@@ -423,6 +438,13 @@ export class MockRenderer {
     // van las corrientes de código animadas (loop de abajo), más brillantes,
     // dando el efecto de "rain" clásico sobre la imagen reconocible.
     const [fgR, fgG, fgB] = hexToRgb(fg);
+    // Invariante respecto a x/y: antes se reasignaba (con un template string
+    // nuevo) en cada una de las cols*rows iteraciones de abajo, forzando al
+    // motor a re-parsear el color como CSS miles de veces por frame para
+    // nada — el valor nunca cambia dentro de este bucle. Se calcula una
+    // sola vez aquí.
+    const baseGlyphStyle = `rgb(${Math.round(fgR * 0.7)},${Math.round(fgG * 0.7)},${Math.round(fgB * 0.7)})`;
+    ctx.fillStyle = baseGlyphStyle;
     for (let y = 0; y < rows; y++) {
       for (let x = 0; x < cols; x++) {
         const idx = y * cols + x;
@@ -437,7 +459,6 @@ export class MockRenderer {
 
         const alpha = Math.min(1, Math.max(0.04, luma * imageStrength));
         ctx.globalAlpha = alpha;
-        ctx.fillStyle = `rgb(${Math.round(fgR * 0.7)},${Math.round(fgG * 0.7)},${Math.round(fgB * 0.7)})`;
         ctx.fillText(this.matrixBaseGlyphs[idx] ?? " ", x * fontSize, y * fontSize);
       }
     }
@@ -659,9 +680,10 @@ export class MockRenderer {
   /**
    * The actual OpenCV pipelines (edges/contours/optical flow/background
    * subtraction/face detection) only exist natively in
-   * native/opencv_bridge.cpp — reimplementing five CV algorithms in JS
-   * canvas2D just for this dev-only fallback isn't worth the maintenance
-   * burden of a second implementation that could drift from the real one.
+   * native/effects/opencv_effect.h's implementation section — reimplementing
+   * five CV algorithms in JS canvas2D just for this dev-only fallback isn't
+   * worth the maintenance burden of a second implementation that could
+   * drift from the real one.
    * This shows the raw source (video file or camera) plus a label, so
    * switching to this effect in mock mode is clearly a "preview the wasm
    * build to see this effect" state rather than silently doing nothing.
