@@ -1,9 +1,10 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ViewportCanvas } from "@/components/canvas/ViewportCanvas";
 import { useAppStore, type ZoomMode } from "@/store/useAppStore";
 import { Button } from "@/components/ui/button";
 import { ExportPanel } from "@/components/layout/ExportPanel";
 import { Download, Upload, X, Camera, CameraOff } from "lucide-react";
+import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { cn } from "@/lib/utils";
 
 const ZOOM_LEVELS: { id: ZoomMode; label: string }[] = [
@@ -16,11 +17,17 @@ const ZOOM_LEVELS: { id: ZoomMode; label: string }[] = [
 const ZOOM_WHEEL_SENSITIVITY = 0.0015;
 
 export function CenterViewport() {
+  // Same breakpoint AppShell uses to pick MobileDockShell vs the classic
+  // layout. On mobile/tablet this toolbar drops the pan/zoom readout and the
+  // Export button (Export already lives in the bottom edge dock there) so
+  // the remaining Fit/50/100/200 + load-video + camera controls fit without
+  // needing to horizontally scroll. Desktop keeps every control, unchanged.
+  const isDesktop = useMediaQuery("(min-width: 1024px)");
+
   const zoom = useAppStore((s) => s.zoom);
   const zoomScale = useAppStore((s) => s.zoomScale);
   const pan = useAppStore((s) => s.pan);
   const setZoom = useAppStore((s) => s.setZoom);
-  const setZoomScale = useAppStore((s) => s.setZoomScale);
   const setPan = useAppStore((s) => s.setPan);
   const resetView = useAppStore((s) => s.resetView);
   const stats = useAppStore((s) => s.stats);
@@ -83,22 +90,42 @@ export function CenterViewport() {
   // the new pan that keeps that screen position fixed as s changes gives
   // panNew = mouse*(1-k) + panOld*k, where k = sNew/sOld and `mouse` is the
   // cursor position relative to the stage's center.
-  const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
-    e.preventDefault();
+  const handleWheel = useCallback(
+    (e: WheelEvent) => {
+      e.preventDefault();
+      const stage = stageRef.current;
+      if (!stage) return;
+      const rect = stage.getBoundingClientRect();
+      const mx = e.clientX - (rect.left + rect.width / 2);
+      const my = e.clientY - (rect.top + rect.height / 2);
+
+      // Read live pan/zoom from the store instead of the closed-over React
+      // state so this listener never needs to be torn down and re-attached
+      // on every scroll tick (which is what caused the passive-listener
+      // warning in the first place — React re-registers `onWheel` as a
+      // passive root listener, and passive listeners can't preventDefault,
+      // so the page would try to scroll under the canvas while zooming).
+      const { pan: panNow, zoomScale: scaleOld, setPan: setPanNow, setZoomScale: setScaleNow } = useAppStore.getState();
+      const factor = Math.exp(-e.deltaY * ZOOM_WHEEL_SENSITIVITY);
+      const scaleNew = Math.min(8, Math.max(0.1, scaleOld * factor));
+      const k = scaleNew / scaleOld;
+
+      setPanNow({ x: mx * (1 - k) + panNow.x * k, y: my * (1 - k) + panNow.y * k });
+      setScaleNow(scaleNew);
+    },
+    []
+  );
+
+  // Attach natively with { passive: false } so preventDefault actually
+  // takes effect — React's onWheel prop is registered passive and silently
+  // ignores preventDefault(), which both spams the console and lets the
+  // browser scroll the page underneath the canvas while zooming.
+  useEffect(() => {
     const stage = stageRef.current;
     if (!stage) return;
-    const rect = stage.getBoundingClientRect();
-    const mx = e.clientX - (rect.left + rect.width / 2);
-    const my = e.clientY - (rect.top + rect.height / 2);
-
-    const factor = Math.exp(-e.deltaY * ZOOM_WHEEL_SENSITIVITY);
-    const scaleOld = zoomScale;
-    const scaleNew = Math.min(8, Math.max(0.1, scaleOld * factor));
-    const k = scaleNew / scaleOld;
-
-    setPan({ x: mx * (1 - k) + pan.x * k, y: my * (1 - k) + pan.y * k });
-    setZoomScale(scaleNew);
-  };
+    stage.addEventListener("wheel", handleWheel, { passive: false });
+    return () => stage.removeEventListener("wheel", handleWheel);
+  }, [handleWheel]);
 
   // Spawn-point handle: dragging it reads the *canvas'* live on-screen
   // bounding rect (already reflecting the current pan/zoom transform) so the
@@ -144,8 +171,13 @@ export function CenterViewport() {
 
   return (
     <div className="relative flex h-full min-w-0 flex-1 flex-col bg-[#0d0d10]">
-      <div className="flex h-8 shrink-0 items-center justify-between border-b border-border px-2">
-        <div className="flex items-center gap-1">
+      <div
+        className={cn(
+          "flex h-8 shrink-0 items-center gap-3 border-b border-border px-2",
+          isDesktop ? "overflow-x-auto" : "justify-between"
+        )}
+      >
+        <div className="flex shrink-0 items-center gap-1">
           {ZOOM_LEVELS.map((z) => (
             <Button
               key={z.id}
@@ -157,11 +189,11 @@ export function CenterViewport() {
             </Button>
           ))}
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex shrink-0 items-center gap-3">
           <button
             type="button"
             onClick={resetView}
-            className="text-[10.5px] text-muted-foreground hover:text-foreground"
+            className="hidden shrink-0 whitespace-nowrap text-[10.5px] text-muted-foreground hover:text-foreground lg:inline"
             title="Restablecer pan y zoom (o doble clic en el visor)"
           >
             Drag to pan · Scroll to zoom · {Math.round(zoomScale * 100)}%
@@ -200,13 +232,15 @@ export function CenterViewport() {
             {camera.active ? <CameraOff className="h-3 w-3" /> : <Camera className="h-3 w-3" />}
             {camera.active ? "Detener cámara" : "Cámara"}
           </Button>
-          <ExportPanel
-            trigger={
-              <Button variant="accent" size="sm" className="gap-1.5">
-                <Download className="h-3 w-3" /> Export
-              </Button>
-            }
-          />
+          {isDesktop && (
+            <ExportPanel
+              trigger={
+                <Button variant="accent" size="sm" className="gap-1.5">
+                  <Download className="h-3 w-3" /> Export
+                </Button>
+              }
+            />
+          )}
         </div>
       </div>
 
@@ -218,7 +252,6 @@ export function CenterViewport() {
         onPointerUp={endStagePan}
         onPointerLeave={endStagePan}
         onPointerCancel={endStagePan}
-        onWheel={handleWheel}
         onDoubleClick={resetView}
       >
         <div

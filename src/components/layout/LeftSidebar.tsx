@@ -1,6 +1,7 @@
 import { EFFECT_DEFINITIONS, type EffectId } from "@/types/effects";
 import { EffectThumbnail } from "@/components/effects/EffectThumbnail";
 import { useAppStore } from "@/store/useAppStore";
+import { usePanelTransparentBg } from "@/hooks/usePanelTransparency";
 import { cn } from "@/lib/utils";
 
 const ORDER: EffectId[] = ["ascii", "particles", "crt", "opencv"];
@@ -9,6 +10,7 @@ export function LeftSidebar() {
   const activeEffect = useAppStore((s) => s.activeEffect);
   const setActiveEffect = useAppStore((s) => s.setActiveEffect);
   const searchQuery = useAppStore((s) => s.searchQuery);
+  const transparent = usePanelTransparentBg();
 
   const query = searchQuery.trim().toLowerCase();
   const visible = query
@@ -19,7 +21,12 @@ export function LeftSidebar() {
     : ORDER;
 
   return (
-    <aside className="flex h-full w-full flex-col border-r border-border bg-panel">
+    <aside
+      className={cn(
+        "flex h-full w-full flex-col border-r border-border transition-colors duration-300",
+        transparent ? "bg-transparent" : "bg-panel"
+      )}
+    >
       <div className="flex h-8 items-center px-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
         Effect Library
       </div>

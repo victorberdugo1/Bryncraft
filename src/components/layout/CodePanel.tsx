@@ -10,6 +10,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Copy, Download } from "lucide-react";
 import { useMemo } from "react";
+import { usePanelTransparentBg } from "@/hooks/usePanelTransparency";
+import { cn } from "@/lib/utils";
 
 function downloadTextFile(filename: string, content: string) {
   const blob = new Blob([content], { type: "text/plain" });
@@ -44,6 +46,7 @@ export function CodePanel() {
   const setCodeTab = useAppStore((s) => s.setCodeTab);
   const activeEffect = useAppStore((s) => s.activeEffect);
   const params = useAppStore((s) => s.paramsByEffect[s.activeEffect]);
+  const transparent = usePanelTransparentBg();
 
   const code = useMemo(() => generateEffectHeader(activeEffect, params), [activeEffect, params]);
   const main = useMemo(() => generateMainTab(activeEffect), [activeEffect]);
@@ -66,7 +69,7 @@ export function CodePanel() {
   }, [codeTab, activeEffect]);
 
   return (
-    <div className="flex h-full flex-col bg-panel">
+    <div className={cn("flex h-full flex-col transition-colors duration-300", transparent ? "bg-transparent" : "bg-panel")}>
       <Tabs value={codeTab} onValueChange={(v) => setCodeTab(v as typeof codeTab)} className="flex h-full min-h-0 flex-col">
         <TabsList className="shrink-0">
           <TabsTrigger value="code">Code</TabsTrigger>

@@ -4,12 +4,15 @@ import { useAppStore } from "@/store/useAppStore";
 import { ParamField } from "@/components/effects/ParamField";
 import { Button } from "@/components/ui/button";
 import { RotateCcw } from "lucide-react";
+import { usePanelTransparentBg } from "@/hooks/usePanelTransparency";
+import { cn } from "@/lib/utils";
 
 export function RightInspector() {
   const activeEffect = useAppStore((s) => s.activeEffect);
   const params = useAppStore((s) => s.paramsByEffect[s.activeEffect]);
   const setParam = useAppStore((s) => s.setParam);
   const resetParams = useAppStore((s) => s.resetParams);
+  const transparent = usePanelTransparentBg();
 
   const def = EFFECT_DEFINITIONS[activeEffect];
 
@@ -24,7 +27,12 @@ export function RightInspector() {
   }, [def]);
 
   return (
-    <aside className="flex h-full w-full flex-col border-l border-border bg-panel">
+    <aside
+      className={cn(
+        "flex h-full w-full flex-col border-l border-border transition-colors duration-300",
+        transparent ? "bg-transparent" : "bg-panel"
+      )}
+    >
       <div className="flex h-8 items-center justify-between px-3">
         <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Inspector</span>
         <Button variant="ghost" size="icon" onClick={() => resetParams(activeEffect)} title="Reset to defaults">

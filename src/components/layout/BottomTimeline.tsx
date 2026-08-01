@@ -1,15 +1,22 @@
 import { useAppStore } from "@/store/useAppStore";
-import { formatTime } from "@/lib/utils";
+import { formatTime, cn } from "@/lib/utils";
+import { usePanelTransparentBg } from "@/hooks/usePanelTransparency";
 
 export function BottomTimeline() {
   const timeline = useAppStore((s) => s.timeline);
   const setCurrentFrame = useAppStore((s) => s.setCurrentFrame);
+  const transparent = usePanelTransparentBg();
 
   const totalFrames = Math.round(timeline.durationSeconds * timeline.fps);
   const currentSeconds = timeline.currentFrame / timeline.fps;
 
   return (
-    <div className="flex h-14 shrink-0 items-center gap-3 border-t border-border bg-panel px-3">
+    <div
+      className={cn(
+        "flex h-14 shrink-0 items-center gap-3 border-t border-border transition-colors duration-300",
+        transparent ? "bg-transparent" : "bg-panel"
+      )}
+    >
       <div className="flex flex-1 items-center gap-3">
         <span className="w-16 shrink-0 font-mono text-[11px] text-muted-foreground">
           {formatTime(currentSeconds)}
