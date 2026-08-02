@@ -82,17 +82,24 @@ static inline void VideoExportStart(int width, int height) {
  * to have a VideoExportCaptureFrame() companion called automatically from
  * the native render loop on every tick while recording, which double-fired
  * captures alongside JS's own explicit calls, corrupting exports. Removed;
- * frameCount below is now just informational bookkeeping.
+ * g_videoExport.frameCount below is therefore never incremented from C
+ * anymore — the real frame count only exists on the JS side (g_frameCount
+ * in video_export.js, which already logs it in "frame export started" /
+ * "Encoding N frames…" / etc). VideoExportGetFrameCount() below always
+ * returns 0; keep that in mind before logging or trusting it for anything.
  */
 
 /**
- * Detiene la grabación y descarga el video.
+ * Detiene la grabación.
+ * (El conteo real de frames vive en JS -- ver el comentario arriba de
+ * VideoExportGetFrameCount -- así que no se repite aquí un número que del
+ * lado de C siempre sería 0.)
  */
 static inline void VideoExportStop(void) {
     #ifdef __EMSCRIPTEN__
     if (g_videoExport.recording) {
         g_videoExport.recording = false;
-        printf("[VideoExport] Deteniendo grabación (%d frames)\n", g_videoExport.frameCount);
+        printf("[VideoExport] Deteniendo grabación\n");
     }
     #else
     printf("[VideoExport] No compilado para WASM, nada que detener\n");
@@ -107,7 +114,10 @@ static inline bool VideoExportIsRecording(void) {
 }
 
 /**
- * Retorna la cantidad de frames grabados.
+ * Retorna la cantidad de frames grabados según el lado de C.
+ * SIEMPRE es 0 -- ver el comentario sobre frameCount más arriba: el conteo
+ * real vive enteramente en JS. No usar esta función para nada que dependa
+ * del número real de frames capturados.
  */
 static inline int VideoExportGetFrameCount(void) {
     return g_videoExport.frameCount;

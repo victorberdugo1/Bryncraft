@@ -86,7 +86,7 @@ export const ASCII_EFFECT: EffectDefinition = {
     { key: "invert", label: "Invert", type: "bool", default: false, group: "Color" },
 
     // --- Matrix mode (code rain) ---
-    { key: "matrixChars", label: "Characters", type: "string", default: "0123456789ABCDEF", group: "Matrix" },
+    { key: "matrixChars", label: "Characters", type: "string", default: "0123456789アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン", group: "Matrix" },
     { key: "matrixDirection", label: "Direction", type: "select", default: "down", options: ["down", "up", "both"], group: "Matrix" },
     { key: "matrixSpeed", label: "Speed", type: "float", default: 14, min: 1, max: 50, step: 1, group: "Matrix" },
     { key: "matrixDensity", label: "Density", type: "float", default: 0.97, min: 0, max: 1, step: 0.01, group: "Matrix" },

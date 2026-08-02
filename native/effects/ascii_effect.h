@@ -17,8 +17,14 @@
  * se siente enganchado a lo que pasa en el vídeo, no solo decorativo encima.
  *
  * Los caracteres del modo matrix se leen como codepoints UTF-8 y se dibujan
- * con DrawTextCodepoint usando la fuente por defecto de raylib (set por
- * defecto: hexadecimal, todo ASCII).
+ * con DrawTextCodepoint. La fuente usada es una fuente custom (TTF) cargada
+ * en memoria vía js_set_matrix_font_data() -- ver el bloque "FUENTE PARA EL
+ * MODO MATRIX" más abajo -- con los codepoints reales de matrixChars, para
+ * que también funcionen katakana/hiragana u otros caracteres fuera de ASCII.
+ * GetFontDefault() (la fuente bitmap de raylib) solo trae glifos ASCII, así
+ * que cualquier codepoint fuera de ese rango salía como '?'. Mientras la
+ * fuente custom no ha llegado todavía desde JS, se usa GetFontDefault()
+ * como fallback (mismo comportamiento que antes, solo ASCII).
  */
 #ifndef ASCII_EFFECT_H
 #define ASCII_EFFECT_H
@@ -27,6 +33,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <stdint.h>
 #ifdef __EMSCRIPTEN__
 #include "../json_mini.h"
 #endif
@@ -39,6 +46,10 @@ void AsciiEffect_SetParams(const JsonValue *paramsObj);
 void AsciiEffect_Update(float dt);
 void AsciiEffect_Draw(RenderTexture2D scene, int screenW, int screenH);
 void AsciiEffect_Unload(void);
+/* Recibe (desde JS, vía Module.ccall) el buffer de una fuente .ttf con los
+ * glifos que necesite el modo matrix (p.ej. katakana/hiragana). Ver el
+ * bloque "FUENTE PARA EL MODO MATRIX" más abajo para el detalle. */
+void js_set_matrix_font_data(size_t bufSize, uint8_t *buf);
 #ifdef __cplusplus
 }
 #endif
@@ -86,7 +97,7 @@ static ASCII_Params ASCII_g_params = {
     .background = (Color){ 11, 11, 14, 0 },
     .invert = false,
     .mode = ASCII_MODE_NORMAL,
-    .matrixChars = "0123456789ABCDEF",
+    .matrixChars = "0123456789アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン",
     .matrixDirection = ASCII_MATRIX_DIR_DOWN,
     .matrixSpeed = 14.0f,
     .matrixDensity = 0.97f,
@@ -198,6 +209,74 @@ static inline int ASCII_RandomMatrixCodepoint(void) {
     if (ASCII_g_matrixCodepointCount <= 0) return ' ';
     return ASCII_g_matrixCodepoints[rand() % ASCII_g_matrixCodepointCount];
 }
+/* ============================================================================
+ * FUENTE PARA EL MODO MATRIX (custom TTF, con soporte katakana/hiragana)
+ * ============================================================================
+ * El buffer del .ttf llega desde JavaScript vía js_set_matrix_font_data(),
+ * igual que el cascade de face_detect en opencv_effect.h: JS hace fetch()
+ * de un archivo en public/assets y pasa el buffer a WASM, evitando la
+ * fragilidad de --preload-file. Aquí se copia y se marca "dirty" para que
+ * ASCII_MatrixEnsureFont() la (re)construya con LoadFontFromMemory() en el
+ * siguiente frame, usando los codepoints reales de matrixChars.
+ */
+static uint8_t *ASCII_g_matrixFontBuffer = NULL;
+static size_t ASCII_g_matrixFontBufferSize = 0;
+static bool ASCII_g_matrixFontDirty = false;      // true tras js_set_matrix_font_data(), pendiente de (re)construir
+static Font ASCII_g_matrixFont = { 0 };
+static bool ASCII_g_matrixFontIsCustom = false;    // true si ASCII_g_matrixFont viene de LoadFontFromMemory (no GetFontDefault)
+static int ASCII_g_matrixFontBuiltSize = -1;       // fontSize con el que se construyó ASCII_g_matrixFont
+static char ASCII_g_matrixFontBuiltChars[ASCII_MATRIX_CHARS_MAX] = ""; // matrixChars con el que se construyó
+
+/* Recibe el buffer del .ttf desde JavaScript. Copia el buffer (JS puede
+ * liberar/reusar el suyo justo después) y marca la fuente como "dirty" para
+ * que se reconstruya en el próximo AsciiEffect_Draw. Si bufSize es 0 o buf es
+ * NULL, simplemente limpia el buffer (vuelve a GetFontDefault() como
+ * fallback, en vez de crashear). */
+void js_set_matrix_font_data(size_t bufSize, uint8_t *buf) {
+    free(ASCII_g_matrixFontBuffer);
+    ASCII_g_matrixFontBuffer = NULL;
+    ASCII_g_matrixFontBufferSize = 0;
+    if (bufSize > 0 && buf) {
+        ASCII_g_matrixFontBuffer = (uint8_t *)malloc(bufSize);
+        if (ASCII_g_matrixFontBuffer) {
+            memcpy(ASCII_g_matrixFontBuffer, buf, bufSize);
+            ASCII_g_matrixFontBufferSize = bufSize;
+        } else {
+            fprintf(stderr, "[ascii_matrix] Failed to allocate memory for font buffer\n");
+        }
+    }
+    ASCII_g_matrixFontDirty = true;
+}
+/* (Re)construye ASCII_g_matrixFont si: llegó un buffer nuevo desde JS, cambió
+ * el fontSize, o cambiaron los caracteres del modo matrix (matrixChars) --
+ * en los tres casos hacen falta glifos distintos a los que la fuente actual
+ * tiene rasterizados. Si no hay buffer (aún no ha llegado desde JS, o falló
+ * la carga), cae a GetFontDefault() -- comportamiento anterior, solo ASCII,
+ * nunca crashea. */
+static void ASCII_MatrixEnsureFont(int fontSize) {
+    bool sizeChanged = (fontSize != ASCII_g_matrixFontBuiltSize);
+    bool charsChanged = (strcmp(ASCII_g_matrixFontBuiltChars, ASCII_g_params.matrixChars) != 0);
+    if (!ASCII_g_matrixFontDirty && !sizeChanged && !charsChanged && ASCII_g_matrixFont.texture.id != 0) return;
+    if (ASCII_g_matrixFontIsCustom && ASCII_g_matrixFont.texture.id != 0) {
+        UnloadFont(ASCII_g_matrixFont);
+    }
+    ASCII_g_matrixFont = GetFontDefault();
+    ASCII_g_matrixFontIsCustom = false;
+    if (ASCII_g_matrixFontBuffer && ASCII_g_matrixFontBufferSize > 0 && ASCII_g_matrixCodepointCount > 0) {
+        Font custom = LoadFontFromMemory(".ttf", ASCII_g_matrixFontBuffer, (int)ASCII_g_matrixFontBufferSize,
+            fontSize, ASCII_g_matrixCodepoints, ASCII_g_matrixCodepointCount);
+        if (custom.texture.id != 0 && custom.glyphCount > 0) {
+            ASCII_g_matrixFont = custom;
+            ASCII_g_matrixFontIsCustom = true;
+        } else {
+            fprintf(stderr, "[ascii_matrix] LoadFontFromMemory failed, falling back to GetFontDefault()\n");
+        }
+    }
+    ASCII_g_matrixFontDirty = false;
+    ASCII_g_matrixFontBuiltSize = fontSize;
+    strncpy(ASCII_g_matrixFontBuiltChars, ASCII_g_params.matrixChars, ASCII_MATRIX_CHARS_MAX - 1);
+    ASCII_g_matrixFontBuiltChars[ASCII_MATRIX_CHARS_MAX - 1] = '\0';
+}
 void AsciiEffect_Draw(RenderTexture2D scene, int screenW, int screenH) {
     int fontSize = ASCII_g_params.fontSize > 0 ? ASCII_g_params.fontSize : 10;
     int cols = screenW / fontSize;
@@ -282,7 +361,8 @@ void AsciiEffect_Draw(RenderTexture2D scene, int screenW, int screenH) {
     ASCII_g_frameCounter++;
     if (ASCII_g_params.mode == ASCII_MODE_MATRIX) {
         ASCII_MatrixEnsureCodepoints();
-        Font font = GetFontDefault();
+        ASCII_MatrixEnsureFont(fontSize);
+        Font font = ASCII_g_matrixFont;
         float dt = GetFrameTime();
         int trail = ASCII_g_params.matrixTrailLength > 1 ? ASCII_g_params.matrixTrailLength : 2;
         bool reactive = ASCII_g_params.matrixReactive;
@@ -379,5 +459,12 @@ void AsciiEffect_Unload(void) {
     free(ASCII_g_colLuma); ASCII_g_colLuma = NULL;
     free(ASCII_g_colLumaPrev); ASCII_g_colLumaPrev = NULL;
     free(ASCII_g_matrixStreams); ASCII_g_matrixStreams = NULL;
+    if (ASCII_g_matrixFontIsCustom && ASCII_g_matrixFont.texture.id != 0) UnloadFont(ASCII_g_matrixFont);
+    ASCII_g_matrixFont = (Font){ 0 };
+    ASCII_g_matrixFontIsCustom = false;
+    ASCII_g_matrixFontBuiltSize = -1;
+    ASCII_g_matrixFontBuiltChars[0] = '\0';
+    free(ASCII_g_matrixFontBuffer); ASCII_g_matrixFontBuffer = NULL;
+    ASCII_g_matrixFontBufferSize = 0;
 }
 #endif /* ASCII_EFFECT_H */

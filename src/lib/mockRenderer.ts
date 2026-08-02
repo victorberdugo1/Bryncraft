@@ -382,7 +382,7 @@ export class MockRenderer {
     const ctx = this.ctx;
     
     const charsRaw = String(
-      this.params.matrixChars ?? "0123456789ABCDEF",
+      this.params.matrixChars ?? "0123456789アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン",
     );
     const glyphPool = Array.from(charsRaw).filter((c) => c !== " ");
     const direction = String(this.params.matrixDirection ?? "down");

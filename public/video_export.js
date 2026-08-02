@@ -264,12 +264,11 @@
     return g_zipWorker;
   }
 
-  function zipWorkerCall(files, folderName, onProgress) {
+  function zipWorkerCall(type, payload, transfer) {
     return new Promise((resolve, reject) => {
       const id = ++g_zipMsgId;
-      g_zipPending.set(id, { resolve, reject, onProgress });
-      const transfer = files.map((f) => f.data.buffer);
-      getZipWorker().postMessage({ id, type: 'zip', payload: { files, folderName } }, transfer);
+      g_zipPending.set(id, { resolve, reject });
+      getZipWorker().postMessage({ id, type, payload }, transfer || []);
     });
   }
 
@@ -282,20 +281,48 @@
     g_zipPending.clear();
   }
 
-  // Shared by _finishPngZip and _zipFramesFromWorkerFS: hands a flat list
-  // of { name, data } frames to the zip worker and rescales its 0-100
-  // progress into [percentFloor, percentCeiling] on the export's own bar.
-  async function compressFilesInWorker(files, folderName, percentFloor, percentCeiling, timingLabel) {
+  // Compresión streaming: cada frame se envía al worker (transferido, cero
+  // copias) en cuanto está disponible, en vez de acumular TODOS los frames
+  // en un array en el hilo principal antes de mandarlos todos juntos como
+  // antes -- eso duplicaba en el hilo principal toda la memoria que el zip
+  // worker de por sí ya necesita, siendo la causa directa de los "Array
+  // buffer allocation failed" en grabaciones largas a 1920x1080. Con esto
+  // el hilo principal nunca retiene más de un frame a la vez.
+  //
+  // getFrame(i) debe devolver { name, data: Uint8Array } para el frame i-ésimo
+  // (o null si ese frame no se pudo recuperar; se salta y sigue).
+  async function streamZipFromFrames(frameCount, getFrame, folderName, percentFloor, percentCeiling, onReadProgress, onCompressStart) {
+    await zipWorkerCall('zip-start', { folderName });
+
+    let added = 0;
+    for (let i = 0; i < frameCount; i += 1) {
+      const frame = await getFrame(i);
+      if (!frame) continue;
+      await zipWorkerCall('zip-add-file', { name: frame.name, data: frame.data }, [frame.data.buffer]);
+      added += 1;
+      if (onReadProgress) onReadProgress(added, i);
+    }
+
+    if (added === 0) return null;
+
+    if (onCompressStart) onCompressStart(added);
+
     const start = performance.now();
-    const zipData = await zipWorkerCall(files, folderName, (workerPercent) => {
-      const elapsed = (performance.now() - start) / 1000;
-      const percent = percentFloor + (workerPercent / 100) * (percentCeiling - percentFloor);
-      // Extrapolate a total-time estimate from how long the worker took to
-      // get this far, so the ETA shown is (estimated total - elapsed) —
-      // not just elapsed again, which would always show "0s left".
-      const estimatedTotal = workerPercent > 0 ? elapsed / (workerPercent / 100) : elapsed;
-      reportProgress(percent, elapsed, estimatedTotal);
+    const zipData = await new Promise((resolve, reject) => {
+      const id = ++g_zipMsgId;
+      g_zipPending.set(id, {
+        resolve,
+        reject,
+        onProgress: (workerPercent) => {
+          const elapsed = (performance.now() - start) / 1000;
+          const percent = percentFloor + (workerPercent / 100) * (percentCeiling - percentFloor);
+          const estimatedTotal = workerPercent > 0 ? elapsed / (workerPercent / 100) : elapsed;
+          reportProgress(percent, elapsed, estimatedTotal);
+        },
+      });
+      getZipWorker().postMessage({ id, type: 'zip-finish', payload: {} });
     });
+
     return new Blob([zipData], { type: 'application/zip' });
   }
 
@@ -490,7 +517,7 @@
     // silently accepting it. Returns true once the frame is genuinely
     // confirmed and committed, false if it never could be (caller decides
     // whether to retry further or abort the export).
-    captureFrame: async function () {
+    captureFrame: async function (frameIndex) {
       if (!g_isRecording) return true;
       if (g_exportFormat !== 'png-sequence' && g_exportFormat !== 'mov-alpha') return true;
 
@@ -499,6 +526,15 @@
         console.error('[VideoExport] No canvas available for frame capture');
         return false;
       }
+
+      // Algunos efectos (p.ej. el optical flow de opencv_effect.h) no
+      // tienen un frame anterior con el que comparar en el primerísimo
+      // frame, y devuelven a propósito una imagen totalmente vacía --  no
+      // es un fallo de captura, y reintentar no cambia nada (siempre daría
+      // el mismo resultado vacío). Así que en el frame 0 un resultado en
+      // blanco se acepta directamente en vez de reintentar y, si sigue en
+      // blanco tras los reintentos, abortar la exportación entera.
+      const allowBlank = frameIndex === 0;
 
       const MAX_ATTEMPTS = 5;
       for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
@@ -537,10 +573,11 @@
         }
 
         const blank = blob ? await isBlobEmpty(blob) : true;
-        if (blob && blob.size > 0 && !blank) {
-          // Confirmed: this frame has real content. Commit it before
-          // reporting success — the caller advances to the next frame only
-          // once this resolves.
+        const accept = blob && blob.size > 0 && (!blank || allowBlank);
+        if (accept) {
+          // Confirmed: this frame has real content (or is frame 0's known-
+          // legitimate blank output). Commit it before reporting success —
+          // the caller advances to the next frame only once this resolves.
           if (g_exportFormat === 'mov-alpha' && g_streamToFFmpeg) {
             try {
               const data = new Uint8Array(await blob.arrayBuffer());
@@ -809,33 +846,45 @@
 
       try {
         resetProgressTracking();
-        emitStatus('zipping', `Reading ${framesToZip.length} PNG frames…`);
+        emitStatus('reading', `Reading ${framesToZip.length} PNG frames…`);
         reportProgress(0, 0, 0);
         const baseName = baseNameOf(filename);
         const folderName = `${baseName}_${g_exportStamp}`;
 
-        // Convert each frame blob to a transferable Uint8Array up front —
-        // this part is I/O, not CPU-bound compression, so it's fine on the
-        // main thread and stays a small (0-10%) slice of the total.
-        const files = [];
-        const readStart = performance.now();
-        for (let i = 0; i < framesToZip.length; i += 1) {
-          const data = new Uint8Array(await framesToZip[i].arrayBuffer());
-          files.push({ name: `${baseName}_${String(i).padStart(5, '0')}.png`, data });
-          if (i % 5 === 0 || i === framesToZip.length - 1) {
-            const elapsed = (performance.now() - readStart) / 1000;
-            const percent = (i / framesToZip.length) * 10;
-            const estimatedTotal = percent > 0 ? elapsed / (percent / 10) : elapsed;
-            reportProgress(percent, elapsed, estimatedTotal);
-          }
-        }
+        // Cada blob se lee y se manda al zip worker uno a uno (ver
+        // streamZipFromFrames más arriba) -- nunca se tienen todos los
+        // frames como Uint8Array en memoria a la vez, solo el que está en
+        // tránsito en cada momento. Lectura y compresión van en tramos
+        // separados de la barra (0-70% / 70-100%) y con su propio
+        // emitStatus, para que quede claro cuál de las dos fases está
+        // corriendo.
+        const start = performance.now();
+        const zipBlob = await streamZipFromFrames(
+          framesToZip.length,
+          async (i) => {
+            const data = new Uint8Array(await framesToZip[i].arrayBuffer());
+            return { name: `${baseName}_${String(i).padStart(5, '0')}.png`, data };
+          },
+          folderName,
+          70,
+          100,
+          (added, i) => {
+            if (i % 5 === 0 || i === framesToZip.length - 1) {
+              const elapsed = (performance.now() - start) / 1000;
+              const percent = (added / framesToZip.length) * 70;
+              const estimatedTotal = percent > 0 ? elapsed / (percent / 70) : elapsed;
+              reportProgress(percent, elapsed, estimatedTotal);
+            }
+          },
+          () => {
+            emitStatus('zipping', `Compressing ${framesToZip.length} PNG frames into a ZIP…`);
+          },
+        );
 
-        // The actual DEFLATE compression happens entirely in zip-worker.js,
-        // off the main thread, so the browser can keep repainting this bar
-        // as real progress messages arrive instead of it looking frozen
-        // until one giant blocking task finishes.
-        emitStatus('compressing', `Compressing ${framesToZip.length} frames into a ZIP…`);
-        const zipBlob = await compressFilesInWorker(files, folderName, 10, 99);
+        if (!zipBlob) {
+          console.error('[VideoExport] no frames could be zipped');
+          return;
+        }
 
         emitStatus('downloading', 'Handing the file to the browser…');
         reportProgress(100, 0, 0);
@@ -852,6 +901,7 @@
     // zipped instead of being lost.
     _encodeFramesToMov: async function (filename) {
       const outputName = filename && filename.endsWith('.mov') ? filename : `${baseNameOf(filename)}.mov`;
+      let encodeFailed = false;
 
       try {
         const args = [
@@ -887,12 +937,32 @@
         emitProgress(100, 0, 0);
         this._downloadBlob(new Blob([data], { type: 'video/quicktime' }), outputName);
       } catch (error) {
+        encodeFailed = true;
         console.error('[VideoExport] MOV encode failed, downloading captured frames as a PNG ZIP instead', error);
         emitStatus('encoding', 'MOV encode failed, falling back to a PNG ZIP of the captured frames…');
+        // The frames are recovered from THIS SAME worker's FS below, so it
+        // must stay alive for that -- the worker only gets torn down and
+        // replaced with a fresh one *after* the recovery attempt, in the
+        // finally block below.
         await this._zipFramesFromWorkerFS(filename);
       } finally {
-        await workerCall('cleardir', { path: '/frames' }).catch(() => {});
-        await workerCall('unlink', { path: '/output.mov' }).catch(() => {});
+        if (encodeFailed) {
+          // A failed exec()/readFile() here is virtually always the ffmpeg
+          // WASM module's own linear memory having grown right up against
+          // its ceiling (it can only grow, never shrink, and this worker
+          // instance is reused across every export in the page session) --
+          // so even a tiny, few-second clip can start failing once enough
+          // memory has piled up from earlier attempts. Once that's
+          // happened once, every future exec() on this SAME worker keeps
+          // failing too, however small. Terminating it here (recovery
+          // frames are already read, see above) forces the NEXT export to
+          // spin up a brand-new worker with a fresh heap instead of
+          // inheriting this one's exhausted memory.
+          terminateWorker();
+        } else {
+          await workerCall('cleardir', { path: '/frames' }).catch(() => {});
+          await workerCall('unlink', { path: '/output.mov' }).catch(() => {});
+        }
       }
     },
 
@@ -905,36 +975,53 @@
 
       try {
         resetProgressTracking();
-        emitStatus('reading', `Reading ${g_frameCount} frames back from ffmpeg\u2019s virtual filesystem…`);
+        emitStatus('reading', `Recovering ${g_frameCount} frames from ffmpeg\u2019s virtual filesystem…`);
         reportProgress(0, 0, 0);
         const baseName = baseNameOf(filename);
         const folderName = `${baseName}_${g_exportStamp}`;
-        const files = [];
 
-        // Each readFile is a real round-trip to the worker, so this loop
-        // already yields naturally between frames — no artificial batching
-        // needed for the progress to actually paint.
-        for (let i = 0; i < g_frameCount; i += 1) {
-          const framePath = `/frames/frame_${String(i).padStart(5, '0')}.png`;
-          try {
-            const data = await workerCall('readFile', { path: framePath });
-            files.push({ name: `${baseName}_${String(i).padStart(5, '0')}.png`, data });
-            reportProgress(Math.round((files.length / g_frameCount) * 40), 0, 0);
-          } catch (error) {
-            console.error(`[VideoExport] frame ${i} could not be read back (skipped)`, error);
-          }
-        }
+        // Cada frame se lee del FS del worker de ffmpeg y se manda
+        // directamente al zip worker (ver streamZipFromFrames más arriba)
+        // -- nunca se acumulan todos los frames en un array en el hilo
+        // principal antes de zippear, que es justo lo que provocaba los
+        // "Array buffer allocation failed" en grabaciones largas a 1080p.
+        // Lectura y compresión se reparten en tramos separados de la barra
+        // (0-70% / 70-100%) y con su propio emitStatus, para que quede
+        // claro cuál de las dos fases está corriendo -- antes ambas
+        // compartían el mismo 0-99%, así que un "99%" no dejaba claro si
+        // ya casi terminaba de leer o llevaba un rato comprimiendo.
+        let skipped = 0;
+        const zipBlob = await streamZipFromFrames(
+          g_frameCount,
+          async (i) => {
+            const framePath = `/frames/frame_${String(i).padStart(5, '0')}.png`;
+            try {
+              const data = await workerCall('readFile', { path: framePath });
+              return { name: `${baseName}_${String(i).padStart(5, '0')}.png`, data };
+            } catch (error) {
+              skipped += 1;
+              console.error(`[VideoExport] frame ${i} could not be read back (skipped)`, error);
+              return null;
+            }
+          },
+          folderName,
+          70,
+          100,
+          (added) => {
+            reportProgress(Math.round((added / g_frameCount) * 70), 0, 0);
+          },
+          () => {
+            emitStatus('zipping', `Compressing ${g_frameCount - skipped} recovered frames into a ZIP…`);
+          },
+        );
 
-        if (files.length === 0) {
+        if (!zipBlob) {
           console.error('[VideoExport] no frames could be read back, nothing to zip');
           return;
         }
-
-        // Compression itself runs in zip-worker.js, off the main thread —
-        // see _finishPngZip / zip-worker.js for why this matters for the
-        // progress bar actually moving.
-        emitStatus('zipping', `Compressing ${files.length} recovered frames into a ZIP…`);
-        const zipBlob = await compressFilesInWorker(files, folderName, 40, 99);
+        if (skipped > 0) {
+          console.warn(`[VideoExport] ${skipped} frame(s) could not be recovered and were skipped`);
+        }
 
         emitStatus('downloading', 'Handing the file to the browser…');
         reportProgress(100, 0, 0);

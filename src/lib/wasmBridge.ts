@@ -1,5 +1,6 @@
 import type { EffectParams, RenderMessage, ViewportOverlayStats, ExportFormat } from "@/types/effects";
 import { initCascadeData } from "@/utils/cascadeLoader";
+import { initMatrixFontData } from "@/utils/fontLoader";
 
 /**
  * Contract expected from the compiled native/ Raylib+Emscripten module
@@ -10,6 +11,7 @@ import { initCascadeData } from "@/utils/cascadeLoader";
 interface EmscriptenModule {
   canvas: HTMLCanvasElement;
   onRuntimeInitialized?: () => void;
+  printErr?: (text: string) => void;
   ccall: (name: string, ret: string, args: string[], vals: unknown[]) => unknown;
   HEAPU8?: Uint8Array;
 }
@@ -19,7 +21,7 @@ declare global {
     Module?: Partial<EmscriptenModule>;
     VideoExportJS?: {
       startEncoder: (w: number, h: number, fps: number, format?: ExportFormat) => boolean | Promise<boolean>;
-      captureFrame: () => Promise<boolean>;
+      captureFrame: (frameIndex?: number) => Promise<boolean>;
       finishEncoder: (filename: string) => Promise<void>;
       cancelRecording: () => void;
       // Optional: registers (phase, message) notifications for the
@@ -93,9 +95,27 @@ class WasmBridge {
     return new Promise((resolve) => {
       window.Module = {
         canvas,
+        // js_start_export (native/main.c) cambia a propósito el timing del
+        // bucle principal de requestAnimationFrame a setTimeout mientras
+        // se graba -- para que la exportación siga avanzando aunque la
+        // pestaña quede en segundo plano (rAF se congela ahí; setTimeout
+        // no). Emscripten emite este aviso genérico cada vez que detecta
+        // ese cambio, pero suena a error cuando en realidad es el
+        // comportamiento esperado (y ocurre igual grabando desde cámara o
+        // desde un vídeo cargado -- no depende de la fuente). Se filtra
+        // aquí solo ESTE mensaje puntual; cualquier otro error/warning de
+        // C sigue llegando a la consola tal cual.
+        printErr: (text: string) => {
+          if (typeof text === "string" && text.includes("rendering without using requestAnimationFrame")) {
+            return;
+          }
+          console.error(text);
+        },
         onRuntimeInitialized: async () => {
-          // Load Haar cascade XML from JavaScript before any face_detect calls
-          await initCascadeData();
+          // Load Haar cascade XML from JavaScript before any face_detect calls,
+          // and the matrix-mode TTF font (katakana/hiragana support) in parallel —
+          // independent bridges, neither depends on the other.
+          await Promise.all([initCascadeData(), initMatrixFontData()]);
           
           this.module = window.Module ?? null;
           this.ready = true;
@@ -290,12 +310,12 @@ class WasmBridge {
    * before resolving (see public/video_export.js) — returns false if it
    * never could get a valid frame, so the export loop can retry or abort
    * instead of silently moving on with a missing/empty frame. */
-  async captureFrame(): Promise<boolean> {
+  async captureFrame(frameIndex?: number): Promise<boolean> {
     const loaded = await this.loadVideoExport();
     if (!loaded || !window.VideoExportJS) {
       return false;
     }
-    const result = await window.VideoExportJS.captureFrame?.();
+    const result = await window.VideoExportJS.captureFrame?.(frameIndex);
     return result !== false;
   }
 

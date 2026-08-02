@@ -77,7 +77,7 @@ const MAX_FRAME_CAPTURE_ATTEMPTS = 3;
 // instead of shipping a gap.
 async function captureCurrentFrameOrThrow(frameIndex: number): Promise<void> {
   for (let attempt = 1; attempt <= MAX_FRAME_CAPTURE_ATTEMPTS; attempt++) {
-    if (await wasmBridge.captureFrame()) return;
+    if (await wasmBridge.captureFrame(frameIndex)) return;
     console.warn(`[ExportPanel] frame ${frameIndex} capture attempt ${attempt}/${MAX_FRAME_CAPTURE_ATTEMPTS} failed`);
     if (attempt < MAX_FRAME_CAPTURE_ATTEMPTS) await nextFrame();
   }
