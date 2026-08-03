@@ -226,7 +226,7 @@ export function CenterViewport() {
               title="Cargar video"
             >
               <Upload className="h-3 w-3" />
-              <span className={cn(!isDesktop && "hidden")}>
+              <span className={cn(!isDesktop && !video.loading && "hidden")}>
                 {video.loading ? `Cargando ${Math.round(video.progress * 100)}%` : "Cargar video"}
               </span>
             </Button>
