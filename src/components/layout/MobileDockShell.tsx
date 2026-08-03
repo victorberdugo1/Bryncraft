@@ -73,7 +73,7 @@ export function MobileDockShell() {
         icon={Clock}
         open={openEdge.bottom}
         onToggle={() => toggle("bottom")}
-        size="min(140px, 20vh)"
+        size="min(160px, 25vh)"
         tabPositionClassName="top-0 right-0 rounded-bl-xl flex-row w-14 h-6"
       >
         <div className="flex flex-col pb-4">
