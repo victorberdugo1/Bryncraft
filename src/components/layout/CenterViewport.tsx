@@ -3,7 +3,7 @@ import { ViewportCanvas } from "@/components/canvas/ViewportCanvas";
 import { useAppStore, type ZoomMode } from "@/store/useAppStore";
 import { Button } from "@/components/ui/button";
 import { ExportPanel } from "@/components/layout/ExportPanel";
-import { Download, Upload, X, Camera, CameraOff } from "lucide-react";
+import { Download, Upload, X, Camera, CameraOff, SwitchCamera } from "lucide-react";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { cn } from "@/lib/utils";
 
@@ -13,6 +13,11 @@ const ZOOM_LEVELS: { id: ZoomMode; label: string }[] = [
   { id: "100", label: "100%" },
   { id: "200", label: "200%" },
 ];
+
+// Mobile toolbar has to share its row with the "Código" edge-dock tab (fixed
+// at the far left) plus the load-video/camera controls, so it only keeps the
+// two most useful zoom levels — the rest (50%/200%) stay desktop-only.
+const MOBILE_ZOOM_IDS: ZoomMode[] = ["fit", "100"];
 
 const ZOOM_WHEEL_SENSITIVITY = 0.0015;
 
@@ -36,6 +41,7 @@ export function CenterViewport() {
   const clearVideo = useAppStore((s) => s.clearVideo);
   const camera = useAppStore((s) => s.camera);
   const setCameraActive = useAppStore((s) => s.setCameraActive);
+  const setCameraFacingMode = useAppStore((s) => s.setCameraFacingMode);
   const activeEffect = useAppStore((s) => s.activeEffect);
   const spawnParams = useAppStore((s) => s.paramsByEffect.particles);
   const setParam = useAppStore((s) => s.setParam);
@@ -173,12 +179,12 @@ export function CenterViewport() {
     <div className="relative flex h-full min-w-0 flex-1 flex-col bg-[#0d0d10]">
       <div
         className={cn(
-          "flex h-8 shrink-0 items-center gap-3 border-b border-border px-2",
-          isDesktop ? "overflow-x-auto" : "justify-between"
+          "flex h-8 shrink-0 items-center gap-2 overflow-x-auto border-b border-border px-2",
+          !isDesktop && "pl-16"
         )}
       >
         <div className="flex shrink-0 items-center gap-1">
-          {(isDesktop ? ZOOM_LEVELS : ZOOM_LEVELS.filter((z) => z.id !== "200")).map((z) => (
+          {(isDesktop ? ZOOM_LEVELS : ZOOM_LEVELS.filter((z) => MOBILE_ZOOM_IDS.includes(z.id))).map((z) => (
             <Button
               key={z.id}
               size="sm"
@@ -189,7 +195,7 @@ export function CenterViewport() {
             </Button>
           ))}
         </div>
-        <div className="flex shrink-0 items-center gap-3">
+        <div className="flex shrink-0 items-center gap-2">
           <button
             type="button"
             onClick={resetView}
@@ -207,7 +213,8 @@ export function CenterViewport() {
               onClick={clearVideo}
               title="Quitar video y volver a la escena de referencia"
             >
-              <X className="h-3 w-3" /> Quitar video
+              <X className="h-3 w-3" />
+              <span className={cn(!isDesktop && "hidden")}>Quitar video</span>
             </Button>
           ) : (
             <Button
@@ -216,9 +223,12 @@ export function CenterViewport() {
               className="gap-1.5"
               disabled={video.loading || camera.active}
               onClick={() => fileInputRef.current?.click()}
+              title="Cargar video"
             >
               <Upload className="h-3 w-3" />
-              {video.loading ? `Cargando ${Math.round(video.progress * 100)}%` : "Cargar video"}
+              <span className={cn(!isDesktop && "hidden")}>
+                {video.loading ? `Cargando ${Math.round(video.progress * 100)}%` : "Cargar video"}
+              </span>
             </Button>
           )}
           <Button
@@ -230,8 +240,19 @@ export function CenterViewport() {
             title={camera.active ? "Detener la cámara" : "Usar la cámara como fuente en vivo"}
           >
             {camera.active ? <CameraOff className="h-3 w-3" /> : <Camera className="h-3 w-3" />}
-            {camera.active ? "Detener cámara" : "Cámara"}
+            <span className={cn(!isDesktop && "hidden")}>{camera.active ? "Detener cámara" : "Cámara"}</span>
           </Button>
+          {camera.active && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="gap-1.5"
+              onClick={() => setCameraFacingMode(camera.facingMode === "environment" ? "user" : "environment")}
+              title={camera.facingMode === "environment" ? "Cambiar a cámara frontal" : "Cambiar a cámara trasera"}
+            >
+              <SwitchCamera className="h-3 w-3" />
+            </Button>
+          )}
           {isDesktop && (
             <ExportPanel
               trigger={

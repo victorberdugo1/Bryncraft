@@ -31,6 +31,7 @@ export function ViewportCanvas() {
   const setStats = useAppStore((s) => s.setStats);
   const videoFrames = useAppStore((s) => s.video.frames);
   const cameraActive = useAppStore((s) => s.camera.active);
+  const cameraFacingMode = useAppStore((s) => s.camera.facingMode);
   const setCameraActive = useAppStore((s) => s.setCameraActive);
   const setCameraError = useAppStore((s) => s.setCameraError);
 
@@ -146,7 +147,7 @@ export function ViewportCanvas() {
     const capture = new CameraCapture();
 
     capture
-      .start()
+      .start(cameraFacingMode)
       .then((videoEl) => {
         if (cancelled) return;
         videoDimsRef.current = { width: videoEl.videoWidth, height: videoEl.videoHeight };
@@ -184,7 +185,7 @@ export function ViewportCanvas() {
       canvas.height = dims.height;
       wasmBridge.setCanvasSize(dims.width, dims.height);
     };
-  }, [cameraActive, setCameraActive, setCameraError]);
+  }, [cameraActive, cameraFacingMode, setCameraActive, setCameraError]);
 
   // once video frames are active, drive the sampled frame from the shared
   // timeline (play/pause/scrub) instead of the renderer's own free-running clock

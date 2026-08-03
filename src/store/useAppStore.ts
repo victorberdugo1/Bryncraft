@@ -64,8 +64,8 @@ interface AppState {
    * video file — see setCameraActive/loadVideo, which clear one another.
    * The actual MediaStream/video element lifecycle lives in
    * src/lib/cameraCapture.ts + ViewportCanvas; the store only tracks
-   * on/off + last error for the UI. */
-  camera: { active: boolean; error: string | null };
+   * on/off + facing side + last error for the UI. */
+  camera: { active: boolean; facingMode: "user" | "environment"; error: string | null };
 
   setActiveEffect: (effect: EffectId) => void;
   setParam: (effect: EffectId, key: string, value: EffectParams[string]) => void;
@@ -102,6 +102,7 @@ interface AppState {
   clearVideo: () => void;
 
   setCameraActive: (active: boolean) => void;
+  setCameraFacingMode: (facingMode: "user" | "environment") => void;
   setCameraError: (error: string | null) => void;
 }
 
@@ -132,7 +133,7 @@ export const useAppStore = create<AppState>((set) => ({
   bottomPanelOpen: true,
 
   video: { frames: null, loading: false, progress: 0, error: null },
-  camera: { active: false, error: null },
+  camera: { active: false, facingMode: "environment", error: null },
 
   setActiveEffect: (effect) => set({ activeEffect: effect }),
 
@@ -226,7 +227,10 @@ export const useAppStore = create<AppState>((set) => ({
   loadVideo: async (file: File) => {
     // Loading a video file and a live camera are mutually exclusive
     // sources — see setCameraActive for the other direction.
-    set({ camera: { active: false, error: null }, video: { frames: null, loading: true, progress: 0, error: null } });
+    set((s) => ({
+      camera: { ...s.camera, active: false, error: null },
+      video: { frames: null, loading: true, progress: 0, error: null },
+    }));
     try {
       const result = await extractVideoFrames(file, (done, total) => {
         set((s) => ({ video: { ...s.video, progress: total > 0 ? done / total : 0 } }));
@@ -258,9 +262,10 @@ export const useAppStore = create<AppState>((set) => ({
   // reacts to, and clears a loaded video since the two sources conflict.
   setCameraActive: (active) =>
     set((s) => ({
-      camera: { active, error: active ? null : s.camera.error },
+      camera: { ...s.camera, active, error: active ? null : s.camera.error },
       video: active ? { frames: null, loading: false, progress: 0, error: null } : s.video,
     })),
+  setCameraFacingMode: (facingMode) => set((s) => ({ camera: { ...s.camera, facingMode } })),
   setCameraError: (error) => set((s) => ({ camera: { ...s.camera, active: error ? false : s.camera.active, error } })),
 }));
 
