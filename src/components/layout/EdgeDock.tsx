@@ -15,7 +15,7 @@ const CHEVRON: Record<DockEdge, LucideIcon> = {
 
 const TAB_POSITION: Record<DockEdge, string> = {
   top: "top-0 left-1/2 -translate-x-1/2 rounded-b-xl flex-row w-14 h-6",
-  bottom: "bottom-0 left-1/2 -translate-x-1/2 rounded-t-xl flex-row w-14 h-6",
+  bottom: "bottom-0 left-1 rounded-t-xl flex-row w-14 h-6",
   left: "left-0 top-1/2 -translate-y-1/2 rounded-r-xl flex-col w-6 h-14",
   right: "right-0 top-1/2 -translate-y-1/2 rounded-l-xl flex-col w-6 h-14",
 };
@@ -67,7 +67,7 @@ export function EdgeDock({ edge, label, icon: Icon, open, onToggle, size, childr
         aria-label={open ? `Cerrar ${label}` : `Abrir ${label}`}
         aria-expanded={open}
         className={cn(
-          "absolute z-40 flex items-center justify-center gap-0.5 border border-border bg-panel/95 text-muted-foreground shadow-floating backdrop-blur-md transition-colors active:bg-panel-raised",
+          "absolute z-50 flex items-center justify-center gap-0.5 border border-border bg-panel/95 text-muted-foreground shadow-floating backdrop-blur-md transition-colors active:bg-panel-raised",
           tabPositionClassName ?? TAB_POSITION[edge]
         )}
         style={{

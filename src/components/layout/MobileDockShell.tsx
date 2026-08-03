@@ -74,6 +74,7 @@ export function MobileDockShell() {
         open={openEdge.bottom}
         onToggle={() => toggle("bottom")}
         size="auto"
+        tabPositionClassName="top-0 right-0 rounded-bl-xl flex-row w-14 h-6"
       >
         <div className="flex flex-col">
           <BottomTimeline />
