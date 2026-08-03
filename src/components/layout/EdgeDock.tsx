@@ -42,6 +42,9 @@ interface EdgeDockProps {
   onToggle: () => void;
   size: string; // e.g. "min(80vw,320px)" applied as width or height depending on edge
   children: ReactNode;
+  /** Overrides TAB_POSITION[edge] for the pull-tab button, e.g. to move it
+   *  off-center so it doesn't sit on top of other toolbar controls. */
+  tabPositionClassName?: string;
 }
 
 /**
@@ -51,7 +54,7 @@ interface EdgeDockProps {
  * panel it fades to near-transparent so the canvas stays visible underneath,
  * then eases back to its normal, solid look shortly after they let go.
  */
-export function EdgeDock({ edge, label, icon: Icon, open, onToggle, size, children }: EdgeDockProps) {
+export function EdgeDock({ edge, label, icon: Icon, open, onToggle, size, children, tabPositionClassName }: EdgeDockProps) {
   const { active, handlers } = usePanelInteraction();
   const Chevron = CHEVRON[edge];
   const isHorizontalEdge = edge === "top" || edge === "bottom";
@@ -65,7 +68,7 @@ export function EdgeDock({ edge, label, icon: Icon, open, onToggle, size, childr
         aria-expanded={open}
         className={cn(
           "absolute z-40 flex items-center justify-center gap-0.5 border border-border bg-panel/95 text-muted-foreground shadow-floating backdrop-blur-md transition-colors active:bg-panel-raised",
-          TAB_POSITION[edge]
+          tabPositionClassName ?? TAB_POSITION[edge]
         )}
         style={{
           marginTop: edge === "top" ? "env(safe-area-inset-top)" : undefined,

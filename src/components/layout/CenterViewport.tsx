@@ -178,7 +178,7 @@ export function CenterViewport() {
         )}
       >
         <div className="flex shrink-0 items-center gap-1">
-          {ZOOM_LEVELS.map((z) => (
+          {(isDesktop ? ZOOM_LEVELS : ZOOM_LEVELS.filter((z) => z.id !== "200")).map((z) => (
             <Button
               key={z.id}
               size="sm"
@@ -289,10 +289,8 @@ export function CenterViewport() {
           <div>
             {stats.resolutionW}×{stats.resolutionH}
           </div>
-          <div>Frame {stats.frame}</div>
           <div className="capitalize">Effect: {stats.effect}</div>
           <div>GPU {stats.gpuFrameTimeMs}ms</div>
-          {video.frames && <div className="text-accent">Video: {video.frames.length} frames</div>}
         </div>
 
         {video.error && (

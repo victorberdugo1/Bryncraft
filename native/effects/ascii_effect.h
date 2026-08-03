@@ -1,30 +1,6 @@
 /*
  * ascii_effect.h — single-header ASCII post‑processing effect for raylib
  * Dependencia JSON solo en __EMSCRIPTEN__
- *
- * Modos:
- *   normal — comportamiento original: rampa de luminancia (glifo según brillo)
- *   matrix — "code rain" estilo Matrix: por columna, una racha de caracteres
- *            nace en un borde y avanza (abajo/arriba/ambas a la vez), con una
- *            cabeza brillante y una estela que se desvanece detrás.
- *
- * El modo matrix es reactivo al vídeo igual que particles_effect.h: se
- * reutiliza el mismo downsample de escena que ya hace el modo normal para
- * elegir el glifo por rampa, pero en vez de leer luminancia por celda se
- * promedia por columna, y se compara contra el frame anterior para estimar
- * "movimiento" por columna. Columnas más brillantes / con más movimiento
- * caen (o suben) más rápido y aparecen con más probabilidad — así el efecto
- * se siente enganchado a lo que pasa en el vídeo, no solo decorativo encima.
- *
- * Los caracteres del modo matrix se leen como codepoints UTF-8 y se dibujan
- * con DrawTextCodepoint. La fuente usada es una fuente custom (TTF) cargada
- * en memoria vía js_set_matrix_font_data() -- ver el bloque "FUENTE PARA EL
- * MODO MATRIX" más abajo -- con los codepoints reales de matrixChars, para
- * que también funcionen katakana/hiragana u otros caracteres fuera de ASCII.
- * GetFontDefault() (la fuente bitmap de raylib) solo trae glifos ASCII, así
- * que cualquier codepoint fuera de ese rango salía como '?'. Mientras la
- * fuente custom no ha llegado todavía desde JS, se usa GetFontDefault()
- * como fallback (mismo comportamiento que antes, solo ASCII).
  */
 #ifndef ASCII_EFFECT_H
 #define ASCII_EFFECT_H
@@ -46,16 +22,11 @@ void AsciiEffect_SetParams(const JsonValue *paramsObj);
 void AsciiEffect_Update(float dt);
 void AsciiEffect_Draw(RenderTexture2D scene, int screenW, int screenH);
 void AsciiEffect_Unload(void);
-/* Recibe (desde JS, vía Module.ccall) el buffer de una fuente .ttf con los
- * glifos que necesite el modo matrix (p.ej. katakana/hiragana). Ver el
- * bloque "FUENTE PARA EL MODO MATRIX" más abajo para el detalle. */
+
 void js_set_matrix_font_data(size_t bufSize, uint8_t *buf);
 #ifdef __cplusplus
 }
 #endif
-/* =========================================================
- * Implementación (variables y funciones con prefijo ASCII_)
- * ========================================================= */
 #define ASCII_MAX_RAMP 64
 #define ASCII_MATRIX_CHARS_MAX 512
 #define ASCII_MATRIX_CODEPOINTS_MAX 128
@@ -73,20 +44,18 @@ typedef struct {
     Color foreground;
     Color background;
     bool invert;
-    int mode; // ASCII_MODE_NORMAL / ASCII_MODE_MATRIX
-    char matrixChars[ASCII_MATRIX_CHARS_MAX]; // UTF-8, p.ej. hexadecimal
-    int matrixDirection;   // ASCII_MATRIX_DIR_*
-    float matrixSpeed;     // filas/seg base de cada racha
-    float matrixDensity;   // 0..1, probabilidad de que nazcan rachas nuevas
-    int matrixTrailLength; // longitud de la estela, en celdas
-    Color matrixHeadColor; // color de la cabeza brillante de cada racha
+    int mode;
+    char matrixChars[ASCII_MATRIX_CHARS_MAX];
+    int matrixDirection;
+    float matrixSpeed;
+    float matrixDensity;
+    int matrixTrailLength;
+    Color matrixHeadColor;
     bool matrixReactive;
-    float matrixReactiveStrength; // 0..1
-    // Cuánto se nota la imagen/vídeo de fondo reconstruida con el brillo de
-    // los glifos (0 = casi negro parejo, valores altos = imagen bien
-    // reconocible detrás de las corrientes de código).
+    float matrixReactiveStrength;
     float matrixImageStrength;
 } ASCII_Params;
+
 static ASCII_Params ASCII_g_params = {
     .ramp = " .:-=+*#%@",
     .fontSize = 10,
@@ -167,25 +136,22 @@ static RenderTexture2D ASCII_g_gridTarget;
 static int ASCII_g_gridCols = 0, ASCII_g_gridRows = 0;
 static char *ASCII_g_glyphCache = NULL;
 static int ASCII_g_frameCounter = 0;
-/* --- Estado del modo matrix --- */
 typedef struct {
-    float head;   // fila actual de la cabeza (fraccional)
-    int dir;      // +1 baja, -1 sube
-    float speed;  // filas/seg de esta racha en concreto
+    float head;
+    int dir;
+    float speed;
     bool active;
 } ASCII_MatrixStream;
-static int *ASCII_g_matrixGlyphs = NULL;      // codepoint por celda, cols*rows
-static float *ASCII_g_colLuma = NULL;         // luminancia media por columna (frame actual)
-static float *ASCII_g_colLumaPrev = NULL;     // luminancia media por columna (frame anterior, para "movimiento")
-static float *ASCII_g_cellLuma = NULL;        // luminancia por celda (cols*rows) — para la capa base
-static int *ASCII_g_baseGlyphs = NULL;        // codepoint por celda de la capa base (imagen reconstruida)
-static bool ASCII_g_baseGlyphsSeeded = false; // true una vez que la capa base tiene glifos reales (no espacios)
-static ASCII_MatrixStream *ASCII_g_matrixStreams = NULL; // 2 por columna (slot 1 solo se usa en "both")
+static int *ASCII_g_matrixGlyphs = NULL;
+static float *ASCII_g_colLuma = NULL;
+static float *ASCII_g_colLumaPrev = NULL;
+static float *ASCII_g_cellLuma = NULL;
+static int *ASCII_g_baseGlyphs = NULL;
+static bool ASCII_g_baseGlyphsSeeded = false;
+static ASCII_MatrixStream *ASCII_g_matrixStreams = NULL;
 static int ASCII_g_matrixCodepoints[ASCII_MATRIX_CODEPOINTS_MAX];
 static int ASCII_g_matrixCodepointCount = 0;
 static char ASCII_g_matrixCharsParsed[ASCII_MATRIX_CHARS_MAX] = "";
-/* Decodifica ASCII_g_params.matrixChars (UTF-8) a una lista de codepoints,
- * cacheada: solo se vuelve a parsear si el string cambió desde la última vez. */
 static void ASCII_MatrixEnsureCodepoints(void) {
     if (ASCII_g_matrixCodepointCount > 0 &&
         strcmp(ASCII_g_matrixCharsParsed, ASCII_g_params.matrixChars) == 0) return;
@@ -209,29 +175,13 @@ static inline int ASCII_RandomMatrixCodepoint(void) {
     if (ASCII_g_matrixCodepointCount <= 0) return ' ';
     return ASCII_g_matrixCodepoints[rand() % ASCII_g_matrixCodepointCount];
 }
-/* ============================================================================
- * FUENTE PARA EL MODO MATRIX (custom TTF, con soporte katakana/hiragana)
- * ============================================================================
- * El buffer del .ttf llega desde JavaScript vía js_set_matrix_font_data(),
- * igual que el cascade de face_detect en opencv_effect.h: JS hace fetch()
- * de un archivo en public/assets y pasa el buffer a WASM, evitando la
- * fragilidad de --preload-file. Aquí se copia y se marca "dirty" para que
- * ASCII_MatrixEnsureFont() la (re)construya con LoadFontFromMemory() en el
- * siguiente frame, usando los codepoints reales de matrixChars.
- */
 static uint8_t *ASCII_g_matrixFontBuffer = NULL;
 static size_t ASCII_g_matrixFontBufferSize = 0;
-static bool ASCII_g_matrixFontDirty = false;      // true tras js_set_matrix_font_data(), pendiente de (re)construir
+static bool ASCII_g_matrixFontDirty = false;
 static Font ASCII_g_matrixFont = { 0 };
-static bool ASCII_g_matrixFontIsCustom = false;    // true si ASCII_g_matrixFont viene de LoadFontFromMemory (no GetFontDefault)
-static int ASCII_g_matrixFontBuiltSize = -1;       // fontSize con el que se construyó ASCII_g_matrixFont
-static char ASCII_g_matrixFontBuiltChars[ASCII_MATRIX_CHARS_MAX] = ""; // matrixChars con el que se construyó
-
-/* Recibe el buffer del .ttf desde JavaScript. Copia el buffer (JS puede
- * liberar/reusar el suyo justo después) y marca la fuente como "dirty" para
- * que se reconstruya en el próximo AsciiEffect_Draw. Si bufSize es 0 o buf es
- * NULL, simplemente limpia el buffer (vuelve a GetFontDefault() como
- * fallback, en vez de crashear). */
+static bool ASCII_g_matrixFontIsCustom = false;
+static int ASCII_g_matrixFontBuiltSize = -1;
+static char ASCII_g_matrixFontBuiltChars[ASCII_MATRIX_CHARS_MAX] = "";
 void js_set_matrix_font_data(size_t bufSize, uint8_t *buf) {
     free(ASCII_g_matrixFontBuffer);
     ASCII_g_matrixFontBuffer = NULL;
@@ -247,12 +197,6 @@ void js_set_matrix_font_data(size_t bufSize, uint8_t *buf) {
     }
     ASCII_g_matrixFontDirty = true;
 }
-/* (Re)construye ASCII_g_matrixFont si: llegó un buffer nuevo desde JS, cambió
- * el fontSize, o cambiaron los caracteres del modo matrix (matrixChars) --
- * en los tres casos hacen falta glifos distintos a los que la fuente actual
- * tiene rasterizados. Si no hay buffer (aún no ha llegado desde JS, o falló
- * la carga), cae a GetFontDefault() -- comportamiento anterior, solo ASCII,
- * nunca crashea. */
 static void ASCII_MatrixEnsureFont(int fontSize) {
     bool sizeChanged = (fontSize != ASCII_g_matrixFontBuiltSize);
     bool charsChanged = (strcmp(ASCII_g_matrixFontBuiltChars, ASCII_g_params.matrixChars) != 0);
@@ -367,12 +311,6 @@ void AsciiEffect_Draw(RenderTexture2D scene, int screenW, int screenH) {
         int trail = ASCII_g_params.matrixTrailLength > 1 ? ASCII_g_params.matrixTrailLength : 2;
         bool reactive = ASCII_g_params.matrixReactive;
         bool wantBoth = (ASCII_g_params.matrixDirection == ASCII_MATRIX_DIR_BOTH);
-
-        // --- Capa base: reconstruye la imagen fuente (vídeo/escena) con la
-        // propia densidad/brillo de los glifos en vez de mostrar el frame en
-        // crudo — es lo que hace que se note el pasillo/gente/cables detrás
-        // de la lluvia de código, igual que en la referencia. Antes de esto
-        // el fondo quedaba directamente transparente/negro en modo matrix.
         if (ASCII_g_matrixCodepointCount > 0) {
             if (!ASCII_g_baseGlyphsSeeded) {
                 for (int i = 0; i < cols * rows; i++) ASCII_g_baseGlyphs[i] = ASCII_RandomMatrixCodepoint();
@@ -397,7 +335,6 @@ void AsciiEffect_Draw(RenderTexture2D scene, int screenW, int screenH) {
                 }
             }
         }
-
         for (int c = 0; c < cols; c++) {
             float luma = reactive ? ASCII_g_colLuma[c] : 0.0f;
             float motion = reactive ? fabsf(ASCII_g_colLuma[c] - ASCII_g_colLumaPrev[c]) * 6.0f : 0.0f;

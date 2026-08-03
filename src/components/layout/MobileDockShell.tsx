@@ -59,6 +59,11 @@ export function MobileDockShell() {
         open={openEdge.top}
         onToggle={() => toggle("top")}
         size="min(55vh, 380px)"
+        // Centered would land on top of the CenterViewport toolbar's
+        // buttons. Anchored left instead, roughly where the 200% zoom
+        // button used to sit (now hidden on mobile), so it clears
+        // "Cargar video" / "Cámara" on the right.
+        tabPositionClassName="top-0 left-36 rounded-b-xl flex-row w-14 h-6"
       >
         <CodePanel />
       </EdgeDock>

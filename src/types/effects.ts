@@ -16,6 +16,12 @@ export interface ParamSchema {
    * #RRGGBBAA hex string (with an alpha slider in the UI) instead of the
    * plain 6-digit #RRGGBB. */
   alpha?: boolean;
+  /** If set, this control only shows in the Inspector while the effect's
+   * own "mode" param is one of these values — purely visual (the
+   * underlying param/value/behavior is unchanged either way, only whether
+   * the control is rendered). Omit for controls that apply regardless of
+   * mode. */
+  modes?: string[];
 }
 
 export interface EffectDefinition {
@@ -76,26 +82,26 @@ export const ASCII_EFFECT: EffectDefinition = {
     { key: "mode", label: "Mode", type: "select", default: "normal", options: ["normal", "matrix"], group: "Mode" },
 
     // --- Normal mode (rampa de luminancia) ---
-    { key: "characters", label: "Characters", type: "string", default: " .:-=+*#%@", group: "Ramp" },
+    { key: "characters", label: "Characters", type: "string", default: " .:-=+*#%@", group: "Ramp", modes: ["normal"] },
     { key: "fontSize", label: "Font", type: "int", default: 10, min: 4, max: 32, step: 1, group: "Ramp" },
-    { key: "brightness", label: "Brightness", type: "float", default: 0.8, min: 0, max: 2, step: 0.01, group: "Image" },
-    { key: "contrast", label: "Contrast", type: "float", default: 1.2, min: 0, max: 3, step: 0.01, group: "Image" },
-    { key: "gamma", label: "Gamma", type: "float", default: 1.1, min: 0.2, max: 3, step: 0.01, group: "Image" },
+    { key: "brightness", label: "Brightness", type: "float", default: 0.8, min: 0, max: 2, step: 0.01, group: "Image", modes: ["normal"] },
+    { key: "contrast", label: "Contrast", type: "float", default: 1.2, min: 0, max: 3, step: 0.01, group: "Image", modes: ["normal"] },
+    { key: "gamma", label: "Gamma", type: "float", default: 1.1, min: 0.2, max: 3, step: 0.01, group: "Image", modes: ["normal"] },
     { key: "foreground", label: "Foreground Color", type: "color", default: "#44D4FF", group: "Color" },
     { key: "background", label: "Background Color", type: "color", default: "#0B0B0E00", alpha: true, group: "Color" },
-    { key: "invert", label: "Invert", type: "bool", default: false, group: "Color" },
+    { key: "invert", label: "Invert", type: "bool", default: false, group: "Color", modes: ["normal"] },
 
     // --- Matrix mode (code rain) ---
-    { key: "matrixChars", label: "Characters", type: "string", default: "0123456789アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン", group: "Matrix" },
-    { key: "matrixDirection", label: "Direction", type: "select", default: "down", options: ["down", "up", "both"], group: "Matrix" },
-    { key: "matrixSpeed", label: "Speed", type: "float", default: 14, min: 1, max: 50, step: 1, group: "Matrix" },
-    { key: "matrixDensity", label: "Density", type: "float", default: 0.97, min: 0, max: 1, step: 0.01, group: "Matrix" },
-    { key: "matrixTrailLength", label: "Trail Length", type: "int", default: 24, min: 2, max: 64, step: 1, group: "Matrix" },
-    { key: "matrixHeadColor", label: "Head Color", type: "color", default: "#CFFFE0", group: "Matrix" },
-    { key: "matrixImageStrength", label: "Image Strength", type: "float", default: 1.3, min: 0, max: 2.5, step: 0.05, group: "Matrix" },
-    { key: "matrixReactive", label: "React to Video", type: "bool", default: true, group: "Matrix" },
-    { key: "matrixReactivityMode", label: "Video Interaction", type: "select", default: "all", options: ["off", "speed", "density", "colors", "all"], group: "Matrix" },
-    { key: "matrixReactiveStrength", label: "Interaction Intensity", type: "float", default: 1.2, min: 0, max: 2, step: 0.01, group: "Matrix" },
+    { key: "matrixChars", label: "Characters", type: "string", default: "0123456789アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン", group: "Matrix", modes: ["matrix"] },
+    { key: "matrixDirection", label: "Direction", type: "select", default: "down", options: ["down", "up", "both"], group: "Matrix", modes: ["matrix"] },
+    { key: "matrixSpeed", label: "Speed", type: "float", default: 14, min: 1, max: 50, step: 1, group: "Matrix", modes: ["matrix"] },
+    { key: "matrixDensity", label: "Density", type: "float", default: 0.97, min: 0, max: 1, step: 0.01, group: "Matrix", modes: ["matrix"] },
+    { key: "matrixTrailLength", label: "Trail Length", type: "int", default: 24, min: 2, max: 64, step: 1, group: "Matrix", modes: ["matrix"] },
+    { key: "matrixHeadColor", label: "Head Color", type: "color", default: "#CFFFE0", group: "Matrix", modes: ["matrix"] },
+    { key: "matrixImageStrength", label: "Image Strength", type: "float", default: 1.3, min: 0, max: 2.5, step: 0.05, group: "Matrix", modes: ["matrix"] },
+    { key: "matrixReactive", label: "React to Video", type: "bool", default: true, group: "Matrix", modes: ["matrix"] },
+    { key: "matrixReactivityMode", label: "Video Interaction", type: "select", default: "all", options: ["off", "speed", "density", "colors", "all"], group: "Matrix", modes: ["matrix"] },
+    { key: "matrixReactiveStrength", label: "Interaction Intensity", type: "float", default: 1.2, min: 0, max: 2, step: 0.01, group: "Matrix", modes: ["matrix"] },
   ],
 };
 
@@ -111,13 +117,13 @@ export const PARTICLES_EFFECT: EffectDefinition = {
     { key: "count", label: "Particle Count", type: "int", default: 2000, min: 10, max: 20000, step: 10, group: "Emission" },
     { key: "spawnRate", label: "Spawn Rate", type: "float", default: 120, min: 0, max: 2000, step: 1, group: "Emission" },
     { key: "spread", label: "Spread (deg)", type: "float", default: 45, min: 0, max: 360, step: 1, group: "Emission" },
-    { key: "spawnX", label: "Spawn X (fountain only)", type: "float", default: 0.5, min: 0, max: 1, step: 0.01, group: "Emission" },
-    { key: "spawnY", label: "Spawn Y (fountain only)", type: "float", default: 0.8, min: 0, max: 1, step: 0.01, group: "Emission" },
+    { key: "spawnX", label: "Spawn X (fountain only)", type: "float", default: 0.5, min: 0, max: 1, step: 0.01, group: "Emission", modes: ["fountain"] },
+    { key: "spawnY", label: "Spawn Y (fountain only)", type: "float", default: 0.8, min: 0, max: 1, step: 0.01, group: "Emission", modes: ["fountain"] },
     
     // --- Física ---
     { key: "gravity", label: "Gravity", type: "float", default: 9.8, min: -50, max: 50, step: 0.1, group: "Physics" },
     { key: "lifetime", label: "Lifetime", type: "float", default: 2.5, min: 0.1, max: 20, step: 0.1, group: "Physics" },
-    { key: "wind", label: "Wind X", type: "float", default: 0, min: -50, max: 50, step: 0.5, group: "Physics" },
+    { key: "wind", label: "Wind X", type: "float", default: 0, min: -50, max: 50, step: 0.5, group: "Physics", modes: ["rain", "embers"] },
     
     // --- Apariencia ---
     { key: "size", label: "Size", type: "float", default: 4, min: 0.5, max: 40, step: 0.1, group: "Appearance" },
@@ -157,35 +163,35 @@ export const OPENCV_EFFECT: EffectDefinition = {
     { key: "mirror", label: "Mirror (front camera)", type: "bool", default: false, group: "Performance" },
 
     // --- edges ---
-    { key: "cannyLow", label: "Canny Low", type: "float", default: 60, min: 0, max: 255, step: 1, group: "Edges" },
-    { key: "cannyHigh", label: "Canny High", type: "float", default: 160, min: 0, max: 255, step: 1, group: "Edges" },
-    { key: "blur", label: "Blur", type: "int", default: 1, min: 0, max: 10, step: 1, group: "Edges" },
-    { key: "edgeOnSource", label: "Overlay on Source", type: "bool", default: false, group: "Edges" },
-    { key: "edgeColor", label: "Edge Color", type: "color", default: "#44D4FF", group: "Edges" },
+    { key: "cannyLow", label: "Canny Low", type: "float", default: 60, min: 0, max: 255, step: 1, group: "Edges", modes: ["edges"] },
+    { key: "cannyHigh", label: "Canny High", type: "float", default: 160, min: 0, max: 255, step: 1, group: "Edges", modes: ["edges"] },
+    { key: "blur", label: "Blur", type: "int", default: 1, min: 0, max: 10, step: 1, group: "Edges", modes: ["edges"] },
+    { key: "edgeOnSource", label: "Overlay on Source", type: "bool", default: false, group: "Edges", modes: ["edges"] },
+    { key: "edgeColor", label: "Edge Color", type: "color", default: "#44D4FF", group: "Edges", modes: ["edges"] },
 
     // --- contours ---
-    { key: "contourMinArea", label: "Min Area", type: "float", default: 80, min: 0, max: 5000, step: 10, group: "Contours" },
-    { key: "contourThickness", label: "Thickness", type: "int", default: 2, min: 1, max: 10, step: 1, group: "Contours" },
-    { key: "contourFill", label: "Fill", type: "bool", default: false, group: "Contours" },
-    { key: "contourColor", label: "Contour Color", type: "color", default: "#44D4FF", group: "Contours" },
+    { key: "contourMinArea", label: "Min Area", type: "float", default: 80, min: 0, max: 5000, step: 10, group: "Contours", modes: ["contours"] },
+    { key: "contourThickness", label: "Thickness", type: "int", default: 2, min: 1, max: 10, step: 1, group: "Contours", modes: ["contours"] },
+    { key: "contourFill", label: "Fill", type: "bool", default: false, group: "Contours", modes: ["contours"] },
+    { key: "contourColor", label: "Contour Color", type: "color", default: "#44D4FF", group: "Contours", modes: ["contours"] },
 
     // --- optical flow ---
-    { key: "flowStrength", label: "Flow Strength", type: "float", default: 1, min: 0.1, max: 3, step: 0.05, group: "Optical Flow" },
-    { key: "flowArrows", label: "Arrows (vs. color)", type: "bool", default: false, group: "Optical Flow" },
-    { key: "flowArrowStep", label: "Arrow Spacing", type: "int", default: 16, min: 4, max: 40, step: 1, group: "Optical Flow" },
+    { key: "flowStrength", label: "Flow Strength", type: "float", default: 1, min: 0.1, max: 3, step: 0.05, group: "Optical Flow", modes: ["optical_flow"] },
+    { key: "flowArrows", label: "Arrows (vs. color)", type: "bool", default: false, group: "Optical Flow", modes: ["optical_flow"] },
+    { key: "flowArrowStep", label: "Arrow Spacing", type: "int", default: 16, min: 4, max: 40, step: 1, group: "Optical Flow", modes: ["optical_flow"] },
 
     // --- background subtraction ---
-    { key: "bgHistory", label: "History", type: "int", default: 120, min: 10, max: 500, step: 10, group: "Background Subtraction" },
-    { key: "bgVarThreshold", label: "Var Threshold", type: "float", default: 16, min: 4, max: 64, step: 1, group: "Background Subtraction" },
-    { key: "bgShadows", label: "Detect Shadows", type: "bool", default: true, group: "Background Subtraction" },
-    { key: "bgMaskOnly", label: "Mask Only", type: "bool", default: false, group: "Background Subtraction" },
+    { key: "bgHistory", label: "History", type: "int", default: 120, min: 10, max: 500, step: 10, group: "Background Subtraction", modes: ["bg_subtract"] },
+    { key: "bgVarThreshold", label: "Var Threshold", type: "float", default: 16, min: 4, max: 64, step: 1, group: "Background Subtraction", modes: ["bg_subtract"] },
+    { key: "bgShadows", label: "Detect Shadows", type: "bool", default: true, group: "Background Subtraction", modes: ["bg_subtract"] },
+    { key: "bgMaskOnly", label: "Mask Only", type: "bool", default: false, group: "Background Subtraction", modes: ["bg_subtract"] },
 
     // --- face detection ---
-    { key: "faceScaleFactor", label: "Scale Factor", type: "float", default: 1.1, min: 1.05, max: 1.4, step: 0.01, group: "Face Detection" },
-    { key: "faceMinNeighbors", label: "Min Neighbors", type: "int", default: 4, min: 1, max: 10, step: 1, group: "Face Detection" },
-    { key: "faceMinSizeFraction", label: "Min Size (% width)", type: "float", default: 0.08, min: 0.02, max: 0.5, step: 0.01, group: "Face Detection" },
-    { key: "faceBoxColor", label: "Box Color", type: "color", default: "#78FF78", group: "Face Detection" },
-    { key: "faceShowCount", label: "Show Count", type: "bool", default: true, group: "Face Detection" },
+    { key: "faceScaleFactor", label: "Scale Factor", type: "float", default: 1.1, min: 1.05, max: 1.4, step: 0.01, group: "Face Detection", modes: ["face_detect"] },
+    { key: "faceMinNeighbors", label: "Min Neighbors", type: "int", default: 4, min: 1, max: 10, step: 1, group: "Face Detection", modes: ["face_detect"] },
+    { key: "faceMinSizeFraction", label: "Min Size (% width)", type: "float", default: 0.08, min: 0.02, max: 0.5, step: 0.01, group: "Face Detection", modes: ["face_detect"] },
+    { key: "faceBoxColor", label: "Box Color", type: "color", default: "#78FF78", group: "Face Detection", modes: ["face_detect"] },
+    { key: "faceShowCount", label: "Show Count", type: "bool", default: true, group: "Face Detection", modes: ["face_detect"] },
   ],
 };
 

@@ -527,16 +527,22 @@
         return false;
       }
 
-      // Algunos efectos (p.ej. el optical flow de opencv_effect.h) no
-      // tienen un frame anterior con el que comparar en el primerísimo
-      // frame, y devuelven a propósito una imagen totalmente vacía --  no
-      // es un fallo de captura, y reintentar no cambia nada (siempre daría
-      // el mismo resultado vacío). Así que en el frame 0 un resultado en
-      // blanco se acepta directamente en vez de reintentar y, si sigue en
-      // blanco tras los reintentos, abortar la exportación entera.
-      const allowBlank = frameIndex === 0;
-
+      // Algunos efectos (p.ej. el optical flow de opencv_effect.h) tienen
+      // un throttle interno (g_frameCounter % 2 == 0 en opencv_effect.h)
+      // que no está sincronizado con el índice de frame que ve este JS --
+      // depende de cuántos frames se han renderizado desde que arrancó la
+      // app, no desde que empezó ESTA grabación. Así que un frame
+      // legítimamente vacío puede tocarle a cualquier índice (0, 2, o el
+      // que sea), no solo al primero. Reintentar unas cuantas veces sigue
+      // teniendo sentido (para dar tiempo a una captura genuinamente lenta
+      // o a un frame que sí va a tener contenido real un instante después),
+      // pero si tras agotar los reintentos la captura SÍ nos dio un PNG
+      // válido -- solo que en blanco -- se acepta tal cual en vez de
+      // abortar toda la exportación por él. Solo se falla de verdad si la
+      // captura en sí nunca produjo un blob (toDataURL/fetch fallando).
       const MAX_ATTEMPTS = 5;
+      let lastBlob = null;
+      let lastBlank = true;
       for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
         let blob = null;
 
@@ -573,25 +579,14 @@
         }
 
         const blank = blob ? await isBlobEmpty(blob) : true;
-        const accept = blob && blob.size > 0 && (!blank || allowBlank);
-        if (accept) {
-          // Confirmed: this frame has real content (or is frame 0's known-
-          // legitimate blank output). Commit it before reporting success —
+        if (blob && blob.size > 0) {
+          lastBlob = blob;
+          lastBlank = blank;
+        }
+        if (blob && blob.size > 0 && !blank) {
+          // Confirmed real content. Commit it before reporting success —
           // the caller advances to the next frame only once this resolves.
-          if (g_exportFormat === 'mov-alpha' && g_streamToFFmpeg) {
-            try {
-              const data = new Uint8Array(await blob.arrayBuffer());
-              const framePath = `/frames/frame_${String(g_frameCount).padStart(5, '0')}.png`;
-              await workerCall('writeFile', { path: framePath, data }, [data.buffer]);
-              g_frameCount += 1;
-            } catch (error) {
-              console.error('[VideoExport] frame write to ffmpeg worker failed', error);
-              return false;
-            }
-          } else {
-            // png-sequence, or mov-alpha fallback when ffmpeg wasn't ready at start
-            g_frameBlobs.push(blob);
-          }
+          if (!(await this._commitFrame(blob))) return false;
           return true;
         }
 
@@ -602,8 +597,40 @@
         await new Promise((resolve) => window.setTimeout(resolve, 32));
       }
 
-      console.error(`[VideoExport] frame ${g_frameCount} still blank after ${MAX_ATTEMPTS} attempts — giving up on this frame`);
+      if (lastBlob) {
+        // Capture itself worked every attempt; the content is just
+        // legitimately empty (an effect's warm-up frame, nothing on
+        // screen, etc.) — accept it rather than failing the whole export
+        // over one dark frame.
+        console.warn(`[VideoExport] frame ${g_frameCount} still ${lastBlank ? 'blank' : 'invalid'} after ${MAX_ATTEMPTS} attempts — accepting it as-is`);
+        return this._commitFrame(lastBlob);
+      }
+
+      console.error(`[VideoExport] frame ${g_frameCount} could not be captured at all after ${MAX_ATTEMPTS} attempts`);
       return false;
+    },
+
+    // Writes a confirmed frame blob to its destination (ffmpeg worker FS
+    // for streaming mov-alpha, or the in-memory blob list otherwise) and
+    // advances g_frameCount. Split out of captureFrame so both the
+    // "confirmed good" and "accepted anyway after retries" paths share the
+    // exact same commit logic instead of duplicating it.
+    _commitFrame: async function (blob) {
+      if (g_exportFormat === 'mov-alpha' && g_streamToFFmpeg) {
+        try {
+          const data = new Uint8Array(await blob.arrayBuffer());
+          const framePath = `/frames/frame_${String(g_frameCount).padStart(5, '0')}.png`;
+          await workerCall('writeFile', { path: framePath, data }, [data.buffer]);
+          g_frameCount += 1;
+        } catch (error) {
+          console.error('[VideoExport] frame write to ffmpeg worker failed', error);
+          return false;
+        }
+      } else {
+        // png-sequence, or mov-alpha fallback when ffmpeg wasn't ready at start
+        g_frameBlobs.push(blob);
+      }
+      return true;
     },
 
     cancelRecording: function () {
