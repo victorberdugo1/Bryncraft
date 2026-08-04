@@ -39,6 +39,7 @@ export function CenterViewport() {
   const video = useAppStore((s) => s.video);
   const loadVideo = useAppStore((s) => s.loadVideo);
   const clearVideo = useAppStore((s) => s.clearVideo);
+  const dismissVideoNotice = useAppStore((s) => s.dismissVideoNotice);
   const camera = useAppStore((s) => s.camera);
   const setCameraActive = useAppStore((s) => s.setCameraActive);
   const setCameraFacingMode = useAppStore((s) => s.setCameraFacingMode);
@@ -234,7 +235,10 @@ export function CenterViewport() {
           <Button
             variant="ghost"
             size="sm"
-            className="gap-1.5"
+            className={cn(
+              "gap-1.5",
+              !isDesktop && !camera.active && !video.frames && "animate-camera-attention",
+            )}
             disabled={video.loading}
             onClick={() => setCameraActive(!camera.active)}
             title={camera.active ? "Detener la cámara" : "Usar la cámara como fuente en vivo"}
@@ -317,6 +321,19 @@ export function CenterViewport() {
         {video.error && (
           <div className="pointer-events-none absolute right-3 top-3 max-w-xs rounded-md border border-destructive/50 bg-panel/95 px-2.5 py-2 text-[11px] text-destructive shadow-floating">
             {video.error}
+          </div>
+        )}
+        {video.notice && (
+          <div className="pointer-events-auto absolute right-3 top-3 flex max-w-xs items-start gap-2 rounded-md border border-primary/40 bg-panel/95 px-2.5 py-2 text-[11px] text-foreground shadow-floating">
+            <span>{video.notice}</span>
+            <button
+              type="button"
+              onClick={dismissVideoNotice}
+              className="shrink-0 text-muted-foreground hover:text-foreground"
+              aria-label="Cerrar aviso"
+            >
+              <X className="h-3 w-3" />
+            </button>
           </div>
         )}
         {camera.error && (

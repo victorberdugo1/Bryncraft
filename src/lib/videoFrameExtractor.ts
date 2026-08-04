@@ -1,26 +1,59 @@
-// Always sample at a fixed 30fps (the adaptive-fps approach made very
-// long/heavy videos seek through hundreds of extra frames, which is what was
-// causing "Error al buscar frame del video" and downstream framebuffer
-// trouble). There is no duration cap — the whole clip is imported. If seeking
-// or decoding eventually fails partway through a very long/heavy video (e.g.
-// the browser runs out of memory for the frame bitmaps), extraction stops
-// there and returns whatever frames were already captured instead of
-// discarding the entire import.
 const DEFAULT_FPS = 30;
+const MIN_SAMPLE_FPS = 8;
+
+const MAX_FILE_SIZE_BYTES = 2 * 1024 * 1024 * 1024; // 2GB
+const MEMORY_BUDGET_BYTES = 400 * 1024 * 1024; // 400MB
 
 export interface VideoFrameExtractionResult {
   frames: ImageBitmap[];
   fps: number;
   width: number;
   height: number;
+  notice: string | null;
 }
 
-/**
- * Espera a que el frame en el tiempo `t` esté realmente decodificado y
- * pintado (no solo a que se dispare "seeked", que puede llegar antes de que
- * el frame esté disponible para drawImage). Usa requestVideoFrameCallback
- * cuando existe; si no, hace fallback a "seeked" + doble rAF.
- */
+function formatMB(bytes: number): string {
+  return `${(bytes / (1024 * 1024)).toFixed(0)}MB`;
+}
+
+function roundToEven(n: number): number {
+  const r = Math.round(n);
+  return r % 2 === 0 ? r : r + 1;
+}
+
+function computeExtractionPlan(
+  duration: number,
+  sourceWidth: number,
+  sourceHeight: number,
+): { fps: number; width: number; height: number; notice: string | null } {
+  const bytesPerFrameFullRes = sourceWidth * sourceHeight * 4;
+  const fpsThatFitsFullRes = MEMORY_BUDGET_BYTES / (duration * bytesPerFrameFullRes);
+
+  if (fpsThatFitsFullRes >= DEFAULT_FPS) {
+    return { fps: DEFAULT_FPS, width: sourceWidth, height: sourceHeight, notice: null };
+  }
+  if (fpsThatFitsFullRes >= MIN_SAMPLE_FPS) {
+    const fps = fpsThatFitsFullRes;
+    return {
+      fps,
+      width: sourceWidth,
+      height: sourceHeight,
+      notice: `Video imported at ${fps.toFixed(1)}fps (instead of ${DEFAULT_FPS}fps) to fit in memory — resolution was kept at ${sourceWidth}×${sourceHeight}, same as the original.`,
+    };
+  }
+
+  const scale = Math.sqrt(MEMORY_BUDGET_BYTES / (duration * MIN_SAMPLE_FPS * bytesPerFrameFullRes));
+  const clampedScale = Math.min(1, scale);
+  const width = Math.max(2, roundToEven(sourceWidth * clampedScale));
+  const height = Math.max(2, roundToEven(sourceHeight * clampedScale));
+  return {
+    fps: MIN_SAMPLE_FPS,
+    width,
+    height,
+    notice: `Video imported at ${width}×${height} @ ${MIN_SAMPLE_FPS}fps (original: ${sourceWidth}×${sourceHeight} @ ${DEFAULT_FPS}fps) — resolution and fps were reduced because the video's length/weight didn't fit in memory.`,
+  };
+}
+
 function seekToFrame(video: HTMLVideoElement, t: number): Promise<void> {
   return new Promise((resolve, reject) => {
     let settled = false;
@@ -42,15 +75,12 @@ function seekToFrame(video: HTMLVideoElement, t: number): Promise<void> {
       resolve();
     };
     const onSeeked = () => {
-      // Fallback: "seeked" puede llegar antes de que el frame esté pintado,
-      // así que se esperan dos rAF extra para asegurar que ya se compuso.
       requestAnimationFrame(() => requestAnimationFrame(finish));
     };
 
-    // Red de seguridad: si `t` coincide con el currentTime que el video ya
-    // tiene, el navegador no considera que hay un seek real y NUNCA dispara
-    // "seeked" ni requestVideoFrameCallback — sin este timeout, la promesa
-    // quedaría colgada para siempre (y con ella todo extractVideoFrames).
+    // Si `t` coincide con el currentTime actual, el navegador no dispara
+    // "seeked" ni requestVideoFrameCallback — sin este timeout la promesa
+    // quedaría colgada para siempre.
     const timeoutHandle = setTimeout(finish, 500);
 
     video.addEventListener("error", onError);
@@ -58,7 +88,7 @@ function seekToFrame(video: HTMLVideoElement, t: number): Promise<void> {
     if (typeof video.requestVideoFrameCallback === "function") {
       video.requestVideoFrameCallback(() => finish());
       video.currentTime = t;
-      video.addEventListener("seeked", onSeeked); // red de seguridad si rVFC nunca llega
+      video.addEventListener("seeked", onSeeked);
     } else {
       video.addEventListener("seeked", onSeeked);
       video.currentTime = t;
@@ -66,23 +96,16 @@ function seekToFrame(video: HTMLVideoElement, t: number): Promise<void> {
   });
 }
 
-/**
- * Extrae frames de un archivo de video completo a 30fps (sin límite de
- * duración) como ImageBitmap, usando un <video> mudo y un canvas offscreen.
- * Si el seek de un frame puntual falla, se reintenta una vez y si vuelve a
- * fallar se reutiliza el último frame válido en su lugar, en vez de abortar
- * toda la importación. Si no hay ningún frame previo que reutilizar, o si
- * llega a fallar la creación del bitmap de un frame (p. ej. sin memoria en
- * videos muy largos/pesados), la extracción se detiene ahí mismo y devuelve
- * los frames capturados hasta ese punto en vez de descartar todo el import.
- * El audio nunca se decodifica ni se reproduce — solo se dibujan frames del
- * elemento de video sobre un canvas (drawImage), así que queda descartado
- * por completo.
- */
 export async function extractVideoFrames(
   file: File,
   onProgress?: (done: number, total: number) => void,
 ): Promise<VideoFrameExtractionResult> {
+  if (file.size > MAX_FILE_SIZE_BYTES) {
+    throw new Error(
+      `El archivo pesa ${formatMB(file.size)} y el máximo soportado es ${formatMB(MAX_FILE_SIZE_BYTES)}. Prueba con un video más corto o comprimido.`,
+    );
+  }
+
   const url = URL.createObjectURL(file);
   const video = document.createElement("video");
   video.muted = true;
@@ -93,8 +116,8 @@ export async function extractVideoFrames(
   video.style.width = "1px";
   video.style.height = "1px";
   video.src = url;
-  // Adjuntarlo al DOM (oculto) es necesario en varios navegadores para que
-  // el decodificador entregue frames reales al hacer seek fuera de reproducción.
+  // Necesario en varios navegadores para que el decodificador entregue
+  // frames reales al hacer seek fuera de reproducción.
   document.body.appendChild(video);
 
   try {
@@ -118,25 +141,25 @@ export async function extractVideoFrames(
       throw new Error("El video no tiene una duración válida");
     }
 
-    const width = video.videoWidth;
-    const height = video.videoHeight;
-    if (!width || !height) {
+    const sourceWidth = video.videoWidth;
+    const sourceHeight = video.videoHeight;
+    if (!sourceWidth || !sourceHeight) {
       throw new Error("El video no tiene dimensiones válidas");
     }
 
-    // "Primea" el decodificador: sin al menos un play/pause real, algunos
-    // navegadores nunca entregan frames decodificados a un <video> que solo
-    // hace seek, y drawImage termina capturando cuadros negros.
+    const { fps, width, height, notice } = computeExtractionPlan(duration, sourceWidth, sourceHeight);
+
+    // Sin un play/pause real antes de hacer seek, algunos navegadores nunca
+    // entregan frames decodificados y drawImage captura cuadros negros.
     try {
       await video.play();
       video.pause();
     } catch {
-      // Autoplay bloqueado: igual seguimos, el seek + rVFC de abajo suele bastar.
+      // Autoplay bloqueado: el seek + rVFC de abajo suele bastar igual.
     }
     video.currentTime = 0;
     await seekToFrame(video, 0);
 
-    const fps = DEFAULT_FPS;
     const totalFrames = Math.max(1, Math.round(duration * fps));
 
     const canvas = document.createElement("canvas");
@@ -151,8 +174,6 @@ export async function extractVideoFrames(
       try {
         await seekToFrame(video, t);
       } catch (err) {
-        // Transient decode hiccups happen, especially near the end of a
-        // clip. Retry once before giving up on this frame.
         try {
           await seekToFrame(video, t);
         } catch {
@@ -162,9 +183,6 @@ export async function extractVideoFrames(
             onProgress?.(i + 1, totalFrames);
             continue;
           }
-          // No previous frame to fall back to and seeking is failing —
-          // stop here rather than throwing away an import that hasn't
-          // produced anything usable yet.
           console.error(`[videoFrameExtractor] stopping import at frame ${i}: seek failed`, err);
           break;
         }
@@ -176,8 +194,6 @@ export async function extractVideoFrames(
         frames.push(bitmap);
         onProgress?.(i + 1, totalFrames);
       } catch (err) {
-        // Likely ran out of memory partway through a very long/heavy video.
-        // Keep everything captured so far instead of discarding the import.
         console.error(`[videoFrameExtractor] stopping import at frame ${i}: could not create frame bitmap`, err);
         break;
       }
@@ -187,7 +203,7 @@ export async function extractVideoFrames(
       throw new Error("No se pudo extraer ningún frame del video");
     }
 
-    return { frames, fps, width, height };
+    return { frames, fps, width, height, notice };
   } finally {
     video.pause();
     video.removeAttribute("src");

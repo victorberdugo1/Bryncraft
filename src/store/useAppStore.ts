@@ -58,6 +58,7 @@ interface AppState {
     loading: boolean;
     progress: number;
     error: string | null;
+    notice: string | null;
   };
 
   /** Live camera feed (getUserMedia), mutually exclusive with a loaded
@@ -100,6 +101,7 @@ interface AppState {
 
   loadVideo: (file: File) => Promise<void>;
   clearVideo: () => void;
+  dismissVideoNotice: () => void;
 
   setCameraActive: (active: boolean) => void;
   setCameraFacingMode: (facingMode: "user" | "environment") => void;
@@ -132,7 +134,7 @@ export const useAppStore = create<AppState>((set) => ({
   rightPanelOpen: true,
   bottomPanelOpen: true,
 
-  video: { frames: null, loading: false, progress: 0, error: null },
+  video: { frames: null, loading: false, progress: 0, error: null, notice: null },
   camera: { active: false, facingMode: "environment", error: null },
 
   setActiveEffect: (effect) => set({ activeEffect: effect }),
@@ -229,14 +231,14 @@ export const useAppStore = create<AppState>((set) => ({
     // sources — see setCameraActive for the other direction.
     set((s) => ({
       camera: { ...s.camera, active: false, error: null },
-      video: { frames: null, loading: true, progress: 0, error: null },
+      video: { frames: null, loading: true, progress: 0, error: null, notice: null },
     }));
     try {
       const result = await extractVideoFrames(file, (done, total) => {
         set((s) => ({ video: { ...s.video, progress: total > 0 ? done / total : 0 } }));
       });
       set({
-        video: { frames: result.frames, loading: false, progress: 1, error: null },
+        video: { frames: result.frames, loading: false, progress: 1, error: null, notice: result.notice },
         timeline: {
           playing: false,
           currentFrame: 0,
@@ -246,16 +248,24 @@ export const useAppStore = create<AppState>((set) => ({
       });
     } catch (err) {
       set({
-        video: { frames: null, loading: false, progress: 0, error: err instanceof Error ? err.message : "Error al cargar el video" },
+        video: {
+          frames: null,
+          loading: false,
+          progress: 0,
+          error: err instanceof Error ? err.message : "Error al cargar el video",
+          notice: null,
+        },
       });
     }
   },
 
   clearVideo: () =>
     set({
-      video: { frames: null, loading: false, progress: 0, error: null },
+      video: { frames: null, loading: false, progress: 0, error: null, notice: null },
       timeline: { playing: false, currentFrame: 0, durationSeconds: 10, fps: 60 },
     }),
+
+  dismissVideoNotice: () => set((s) => ({ video: { ...s.video, notice: null } })),
 
   // Actual getUserMedia/MediaStream lifecycle lives in ViewportCanvas (via
   // src/lib/cameraCapture.ts) — this just toggles the on/off state it
@@ -263,7 +273,7 @@ export const useAppStore = create<AppState>((set) => ({
   setCameraActive: (active) =>
     set((s) => ({
       camera: { ...s.camera, active, error: active ? null : s.camera.error },
-      video: active ? { frames: null, loading: false, progress: 0, error: null } : s.video,
+      video: active ? { frames: null, loading: false, progress: 0, error: null, notice: null } : s.video,
     })),
   setCameraFacingMode: (facingMode) => set((s) => ({ camera: { ...s.camera, facingMode } })),
   setCameraError: (error) => set((s) => ({ camera: { ...s.camera, active: error ? false : s.camera.active, error } })),

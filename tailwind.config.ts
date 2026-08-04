@@ -44,10 +44,15 @@ export default {
       keyframes: {
         "fade-in": { from: { opacity: "0" }, to: { opacity: "1" } },
         "slide-up": { from: { opacity: "0", transform: "translateY(4px)" }, to: { opacity: "1", transform: "translateY(0)" } },
+        "camera-attention": {
+          "0%, 100%": { transform: "scale(1)", boxShadow: "0 0 0 0 rgba(68,212,255,0)" },
+          "50%": { transform: "scale(1.12)", boxShadow: "0 0 0 4px rgba(68,212,255,0.45)" },
+        },
       },
       animation: {
         "fade-in": "fade-in 120ms ease-out",
         "slide-up": "slide-up 140ms ease-out",
+        "camera-attention": "camera-attention 0.6s ease-in-out 3",
       },
     },
   },
