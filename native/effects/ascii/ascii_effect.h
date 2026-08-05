@@ -11,6 +11,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #ifdef __EMSCRIPTEN__
+#include <emscripten.h>
 #include "../../json_mini.h"
 #endif
 #ifdef __cplusplus
@@ -183,6 +184,9 @@ static Font ASCII_g_matrixFont = { 0 };
 static bool ASCII_g_matrixFontIsCustom = false;
 static int ASCII_g_matrixFontBuiltSize = -1;
 static char ASCII_g_matrixFontBuiltChars[ASCII_MATRIX_CHARS_MAX] = "";
+#ifdef __EMSCRIPTEN__
+EMSCRIPTEN_KEEPALIVE
+#endif
 void js_set_matrix_font_data(size_t bufSize, uint8_t *buf) {
     free(ASCII_g_matrixFontBuffer);
     ASCII_g_matrixFontBuffer = NULL;
@@ -409,7 +413,7 @@ void AsciiEffect_Draw(RenderTexture2D scene, int screenW, int screenH) {
 // exactamente a lo que se expande esa macro, así que el efecto es
 // idéntico sin depender del orden de includes.
 #ifdef __EMSCRIPTEN__
-__attribute__((used))
+EMSCRIPTEN_KEEPALIVE
 #endif
 const char *js_get_ascii_grid_text(void) {
     static char *buf = NULL;
