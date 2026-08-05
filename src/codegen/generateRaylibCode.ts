@@ -1,22 +1,57 @@
 import type { EffectId, EffectParams } from "@/types/effects";
 
-// Los .h/.c reales, cargados tal cual están en native/effects/ (Vite ?raw).
-// Nada se copia a mano aquí: si tocas esos archivos, esto se entera solo.
-import asciiHeaderRaw from "../../native/effects/ascii_effect.h?raw";
-import crtHeaderRaw from "../../native/effects/crt_effect.h?raw";
-import particlesHeaderRaw from "../../native/effects/particles_effect.h?raw";
-import opencvHeaderRaw from "../../native/effects/opencv_effect.h?raw";
+// Los .h/.c/.md reales, cargados tal cual están en native/effects/<efecto>/
+// (Vite ?raw). Nada se copia a mano aquí: si tocas esos archivos, esto se
+// entera solo.
+import asciiHeaderRaw from "../../native/effects/ascii/ascii_effect.h?raw";
+import crtHeaderRaw from "../../native/effects/crt/crt_effect.h?raw";
+import particlesHeaderRaw from "../../native/effects/particles/particles_effect.h?raw";
+import opencvHeaderRaw from "../../native/effects/opencv/opencv_effect.h?raw";
 
-import main000Raw from "../../native/effects/main000.c?raw";
-import main001Raw from "../../native/effects/main001.c?raw";
-import main002Raw from "../../native/effects/main002.c?raw";
-import main003Raw from "../../native/effects/main003.c?raw";
+import main000Raw from "../../native/effects/ascii/main000.c?raw";
+import main001Raw from "../../native/effects/particles/main001.c?raw";
+import main002Raw from "../../native/effects/crt/main002.c?raw";
+import main003Raw from "../../native/effects/opencv/main003.c?raw";
+
+// README.md real de cada carpeta de efecto — esto es lo que muestra el tab
+// "README" del CodePanel. Antes ese tab generaba texto a mano en TS (y se
+// desincronizaba de lo que había realmente en native/effects/); ahora es
+// literalmente el archivo, ni una copia ni una plantilla.
+import asciiReadmeRaw from "../../native/effects/ascii/README.md?raw";
+import particlesReadmeRaw from "../../native/effects/particles/README.md?raw";
+import crtReadmeRaw from "../../native/effects/crt/README.md?raw";
+import opencvReadmeRaw from "../../native/effects/opencv/README.md?raw";
+
+// Extras por efecto: archivos que ese efecto necesita además del header/main
+// y que no son código C — fuente, scripts de build, etc. Los de texto se
+// cargan con ?raw (mismo mecanismo que arriba); el .ttf es binario, así que
+// se importa con ?url (Vite lo copia tal cual al bundle y devuelve su URL
+// final — nunca pasa por un Blob de texto, que corrompería los bytes).
+import opencvBuildShRaw from "../../native/effects/opencv/opencv_build_and_run.sh?raw";
+import opencvBuildBatRaw from "../../native/effects/opencv/opencv_build_and_run.bat?raw";
+import asciiFontUrl from "../../native/effects/ascii/NotoSansJP-Kana.ttf?url";
+
+// raylib.h / libraylib.a viven en native/effects/ (compartidos por las 4
+// demos standalone) — se ofrecen como extra en ascii (el primer efecto)
+// para que alguien que solo se lleva esa carpeta tenga igual lo necesario
+// para compilar main000.c. Ambos por ?url: raylib.h también, para no
+// inflar el bundle JS con sus ~130KB como string — se sirve como asset
+// estático igual que el .ttf.
+import raylibHeaderUrl from "../../native/effects/raylib.h?url";
+import libraylibUrl from "../../native/effects/libraylib.a?url";
 
 const MAIN_BY_EFFECT: Record<EffectId, { filename: string; raw: string }> = {
   ascii: { filename: "main000.c", raw: main000Raw },
   particles: { filename: "main001.c", raw: main001Raw },
   crt: { filename: "main002.c", raw: main002Raw },
   opencv: { filename: "main003.c", raw: main003Raw },
+};
+
+const README_BY_EFFECT: Record<EffectId, string> = {
+  ascii: asciiReadmeRaw,
+  particles: particlesReadmeRaw,
+  crt: crtReadmeRaw,
+  opencv: opencvReadmeRaw,
 };
 
 // Campos int de C (fontSize, count): sin punto decimal.
@@ -194,7 +229,7 @@ export function generateEffectHeader(effect: EffectId, params: EffectParams): st
     case "crt":
       return crtHeaderRaw.replace(CRT_PARAMS_RE, buildCrtParamsBlock(params));
     case "opencv":
-      // effects/opencv_effect.h ahora es single-header (estilo stb_image.h):
+      // effects/opencv/opencv_effect.h ahora es single-header (estilo stb_image.h):
       // arriba las declaraciones planas en C que main.c parsea, y debajo,
       // tras OPENCV_EFFECT_IMPLEMENTATION, el OcvParams/pipelines reales en
       // C++. Un único bloque `static OcvParams g_params = { ... };` (mismo
@@ -229,77 +264,73 @@ function extractCString(headerRaw: string, varName: string): string {
   return parts.map((p) => JSON.parse(p)).join("");
 }
 
-export function generateShaderSnippet(effect: EffectId): string {
-  if (effect === "opencv") {
-    return `// opencv runs entirely on the CPU via OpenCV (Canny/contours/optical flow/
-// background subtraction/Haar cascades) — no fragment shader involved.
-// See native/effects/opencv_effect.h (single-header: plain-C interface at
-// the top, real OpenCV pipeline below OPENCV_EFFECT_IMPLEMENTATION).`;
-  }
-  if (effect !== "crt") {
-    return `// ${effect} runs on the CPU/immediate-mode raylib API — no fragment shader needed.
-// See native/effects/${effect}_effect.h`;
-  }
-  const glsl = extractCString(crtHeaderRaw, "CRT_FS_SOURCE");
-  return `// Extraído de CRT_FS_SOURCE en native/effects/crt_effect.h (GLSL 100, WebGL1/ES)
-// Esto es exactamente la cadena que se compila en CrtEffect_Init(), no una copia aparte.
+/** Un archivo descargable del tab "Extra" para el efecto activo. `text`
+ * trae el contenido listo para mostrar/copiar/descargar como texto plano;
+ * `binary-url` trae una URL (asset de Vite) para descargar tal cual, sin
+ * pasar por texto — así un .ttf no se corrompe. */
+export type ExtraAsset =
+  | { filename: string; label: string; kind: "text"; content: string }
+  | { filename: string; label: string; kind: "binary-url"; url: string };
 
-${glsl}`;
+/** Archivos extra de cada efecto — lo que sea que ese efecto necesite además
+ * de su header/main, y que no es código C generado por el Inspector: fuente,
+ * scripts de build, shader... No todos los efectos tienen alguno (particles
+ * no necesita nada aparte). */
+export function getExtras(effect: EffectId): ExtraAsset[] {
+  switch (effect) {
+    case "crt":
+      return [
+        {
+          filename: "crt.fs",
+          label: "Fragment shader (GLSL 100 / WebGL1-ES)",
+          kind: "text",
+          content: extractCString(crtHeaderRaw, "CRT_FS_SOURCE"),
+        },
+      ];
+    case "ascii":
+      return [
+        {
+          filename: "NotoSansJP-Kana.ttf",
+          label: "Fuente del modo Matrix (kana)",
+          kind: "binary-url",
+          url: asciiFontUrl,
+        },
+        {
+          filename: "raylib.h",
+          label: "raylib.h (compartido por las 4 demos standalone)",
+          kind: "binary-url",
+          url: raylibHeaderUrl,
+        },
+        {
+          filename: "libraylib.a",
+          label: "libraylib.a (compartido por las 4 demos standalone)",
+          kind: "binary-url",
+          url: libraylibUrl,
+        },
+      ];
+    case "opencv":
+      return [
+        {
+          filename: "opencv_build_and_run.sh",
+          label: "Build script (Linux/macOS)",
+          kind: "text",
+          content: opencvBuildShRaw,
+        },
+        {
+          filename: "opencv_build_and_run.bat",
+          label: "Build script (Windows / MinGW)",
+          kind: "text",
+          content: opencvBuildBatRaw,
+        },
+      ];
+    case "particles":
+      return [];
+  }
 }
 
-/** README tab: texto plano, sin sintaxis Markdown — se muestra en un <pre>
- * crudo, no en un visor de markdown. */
+/** README tab: el README.md real de native/effects/<efecto>/, tal cual está
+ * en disco — no una plantilla generada en TS. Se muestra en un <pre> crudo,
+ * sin renderizar Markdown. */
 export function generateReadme(effect: EffectId): string {
-  const titles: Record<EffectId, string> = {
-    ascii: "ASCII Renderer",
-    particles: "Particle System",
-    crt: "CRT",
-    opencv: "OpenCV Vision",
-  };
-
-  const title = titles[effect];
-  const bar = "=".repeat(Math.max(60, title.length + 8));
-
-  return `${bar}
-  ${title}
-${bar}
-
-Este efecto corre entero dentro del canvas Raylib/WebAssembly. React nunca
-dibuja en el canvas — solo envía actualizaciones de parámetros en JSON por
-el bridge definido en src/lib/wasmBridge.ts, que llama a js_set_effect_json()
-en native/main.c.
-
-  CONTRATO DEL MENSAJE
-  --------------------
-  { "effect": "${effect}", "params": { ... } }
-
-  DÓNDE VIVE LA LÓGICA
-  --------------------
-  native/main.c
-      Reparte el mensaje decodificado al módulo del efecto activo.
-
-  native/effects/${effect}_effect.h
-      ${effect === "opencv"
-        ? "Single-header: la interfaz C que expone el efecto a main.c\n      (SetParams/Update/Draw/Unload) y la implementación real (OpenCV)\n      viven las dos en este mismo archivo — ver la pestaña \"Code\" para\n      el archivo completo, con los valores actuales del Inspector ya\n      sustituidos en el bloque g_params."
-        : "Simulación + dibujado de este efecto (ver la pestaña \"Code\" para\n      el header exacto con los valores actuales del Inspector)."}
-
-  native/effects/${MAIN_BY_EFFECT[effect].filename}
-      Ejemplo mínimo standalone — el programa raylib más pequeño que
-      hace andar este efecto por sí solo (pestaña "Main").
-
-  js_get_stats_json()
-      Reporta FPS / frame / GPU time de vuelta a React.
-
-  RECOMPILAR
-  ----------
-  cd native
-  make raylib   (solo la primera vez — compila libraylib.a para PLATFORM_WEB)
-  make          (genera index.html/js/wasm vía emcc)
-  make run      (sirve en http://localhost:8000)
-
-  Copia la salida del build a public/wasm/ (como index.js + index.wasm) para
-  que el servidor de Vite lo encuentre — ver WASM_GLUE_PATH en wasmBridge.ts.
-  Hasta que ese build exista, la app corre sobre el preview Canvas2D de
-  src/lib/mockRenderer.ts, que refleja el mismo contrato de parámetros.
-`;
+  return README_BY_EFFECT[effect];
 }

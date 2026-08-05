@@ -10,12 +10,26 @@ canvas — it only sends JSON over the bridge in `src/lib/wasmBridge.ts`.
 | `main.c` | Window/render-texture setup, JS-exported functions, main loop, effect dispatch |
 | `json_mini.h/.c` | Allocation-free JSON parser for decoding `{effect, params}` messages |
 | `effects/effect_common.h` | Shared `EffectKind` enum + naming convention every effect module follows |
-| `effects/ascii_effect.c/.h` | Image → ASCII character grid |
-| `effects/particles_effect.c/.h` | Fixed-pool particle simulation (gravity, lifetime, size falloff) |
-| `effects/crt_effect.c/.h` | Drives `assets/shaders/crt.fs` (scanlines, barrel distortion, noise, chromatic aberration) |
+| `effects/raylib.h`, `effects/libraylib.a` | Local dev copies of raylib, shared by every effect's standalone demo below (`-I.. -L..` from inside each effect folder) |
+| `effects/main.c` | Combined demo — all effects in one raylib window, switched with keys 0-3 |
 | `video_export_emscripten.js` / `video_export.h` | MediaRecorder + FFmpeg.wasm capture/encode pipeline (reused from the chess_viewer reference project) |
 | `shell.html` | Emscripten HTML shell — canvas + loading overlay, no UI widgets |
 | `Makefile` | emsdk + raylib(PLATFORM_WEB) + ffmpeg.wasm bootstrap and build |
+
+## Effect folders
+
+Each effect under `effects/` is a self-contained subfolder: the header the
+WASM build compiles, a minimal standalone demo, its own `README.md`
+(the one the app's "README" code-panel tab actually loads), and whatever
+extra file that effect needs (font, build script, etc.) that shows up under
+the app's "Extra" tab.
+
+| Folder | Header | Standalone demo | Extra files |
+|---|---|---|---|
+| `effects/ascii/` | `ascii_effect.h` | `main000.c` | `NotoSansJP-Kana.ttf` (Matrix mode font) |
+| `effects/particles/` | `particles_effect.h` | `main001.c` | — |
+| `effects/crt/` | `crt_effect.h` | `main002.c` | GLSL shader (extracted from `CRT_FS_SOURCE`, not a separate file) |
+| `effects/opencv/` | `opencv_effect.h` | `main003.c` | `opencv_build_and_run.sh`, `opencv_build_and_run.bat` |
 
 ## Message contract
 
@@ -57,6 +71,11 @@ parameter contract so the UI is fully interactive either way.
 1. Add its `EffectId` + `ParamSchema[]` in `src/types/effects.ts` (drives the
    Inspector, Code panel, and mock renderer automatically).
 2. Add the enum value in `effects/effect_common.h`.
-3. Add `effects/<name>_effect.c/.h` implementing `SetParams` / `Update` / `Draw`.
-4. Dispatch it in `main.c`'s `js_set_effect_json` switch and `UpdateDrawFrame`.
-5. Add its source file to `SRC` in the `Makefile`.
+3. Create `effects/<name>/<name>_effect.h` implementing `SetParams` / `Update` / `Draw`,
+   plus a minimal `effects/<name>/main<NNN>.c` standalone demo and an
+   `effects/<name>/README.md` — same layout as the existing folders.
+4. Dispatch it in `main.c`'s `js_set_effect_json` switch and `UpdateDrawFrame`,
+   including it as `effects/<name>/<name>_effect.h`.
+5. `EFFECT_HEADERS` in the `Makefile` already globs `effects/*/*.h`, so no
+   Makefile change is needed unless the effect needs its own build step
+   (like `opencv/` does).

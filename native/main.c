@@ -11,10 +11,10 @@
 #include "json_mini.h"
 #include "video_export.h"
 #include "effects/effect_common.h"
-#include "effects/ascii_effect.h"
-#include "effects/particles_effect.h"
-#include "effects/crt_effect.h"
-#include "effects/opencv_effect.h"
+#include "effects/ascii/ascii_effect.h"
+#include "effects/particles/particles_effect.h"
+#include "effects/crt/crt_effect.h"
+#include "effects/opencv/opencv_effect.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -345,7 +345,7 @@ static void UpdateDrawFrame(void) {
             // frame or procedural placeholder) as the source Mat, runs
             // whichever OpenCV pipeline OpencvEffect_SetParams last selected
             // (edges/contours/optical flow/background subtraction/face
-            // detection — see effects/opencv_effect.h's implementation
+            // detection — see effects/opencv/opencv_effect.h's implementation
             // section), and draws the
             // result to the backbuffer.
             BeginTextureMode(g_sceneTarget);

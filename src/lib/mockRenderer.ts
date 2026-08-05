@@ -680,7 +680,7 @@ export class MockRenderer {
   /**
    * The actual OpenCV pipelines (edges/contours/optical flow/background
    * subtraction/face detection) only exist natively in
-   * native/effects/opencv_effect.h's implementation section — reimplementing
+   * native/effects/opencv/opencv_effect.h's implementation section — reimplementing
    * five CV algorithms in JS canvas2D just for this dev-only fallback isn't
    * worth the maintenance burden of a second implementation that could
    * drift from the real one.

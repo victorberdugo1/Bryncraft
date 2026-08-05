@@ -11,7 +11,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #ifdef __EMSCRIPTEN__
-#include "../json_mini.h"
+#include "../../json_mini.h"
 #endif
 #ifdef __cplusplus
 extern "C" {

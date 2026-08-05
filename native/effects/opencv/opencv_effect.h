@@ -16,7 +16,7 @@
  * There is no companion .cpp for the implementation below. It's compiled
  * by pointing a C++ compiler straight at THIS file (see the OPENCV_OBJ rule
  * in the Makefile):
- *     em++ -DOPENCV_EFFECT_IMPLEMENTATION -x c++ -c effects/opencv_effect.h -o opencv_effect.o
+ *     em++ -DOPENCV_EFFECT_IMPLEMENTATION -x c++ -c effects/opencv/opencv_effect.h -o opencv_effect.o
  * `-x c++` forces the C++ frontend regardless of the .h extension, and the
  * -D flag unlocks the block below instead of just the plain-C declarations
  * main.c sees. That command line is the ONLY reason a C++ compiler is
@@ -29,7 +29,7 @@
 
 #include "raylib.h"
 #ifdef __EMSCRIPTEN__
-#include "../json_mini.h"
+#include "../../json_mini.h"
 #endif
 
 #ifdef __cplusplus
@@ -154,7 +154,7 @@ enum OcvMode {
 // bloque de abajo (ver g_params más adelante), con el mismo formato que
 // esos otros tres — así este archivo se comporta igual que sus .h
 // hermanos: main.c nunca ve esta diferencia (sigue incluyendo solo
-// effects/opencv_effect.h), pero el panel "Code" ya refleja los valores
+// effects/opencv/opencv_effect.h), pero el panel "Code" ya refleja los valores
 // reales del Inspector.
 struct OcvParams {
     OcvMode mode;
@@ -284,6 +284,7 @@ static OcvMode OcvModeFromString(const char *s, OcvMode fallback) {
     return fallback;
 }
 
+#ifdef __EMSCRIPTEN__
 void OpencvEffect_SetParams(const JsonValue *paramsObj) {
     if (!paramsObj) return;
 
@@ -331,6 +332,7 @@ void OpencvEffect_SetParams(const JsonValue *paramsObj) {
         g_lastMode = g_params.mode;
     }
 }
+#endif // __EMSCRIPTEN__
 
 void OpencvEffect_Update(float dt) {
     (void)dt;

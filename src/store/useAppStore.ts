@@ -19,7 +19,7 @@ function clampZoomScale(v: number) {
   return Math.min(ZOOM_SCALE_MAX, Math.max(ZOOM_SCALE_MIN, v));
 }
 export type MobileTab = "preview" | "parameters" | "code" | "export";
-export type CodeTab = "code" | "main" | "shader" | "readme";
+export type CodeTab = "code" | "main" | "extra" | "readme";
 
 interface TimelineState {
   playing: boolean;

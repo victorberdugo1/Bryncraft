@@ -10,11 +10,14 @@
 // OpenCV's videoio module, which isn't part of the trimmed core/imgproc/
 // video/objdetect wasm build (see opencv_effect.h) — this is only ever
 // reachable through the system OpenCV pkg-config picks up here, on a real
-// desktop:
+// desktop. raylib.h / libraylib.a live one level up, in native/effects/
+// (shared by every effect's standalone demo) — hence -I.. / -L.. below.
+// See opencv_build_and_run.sh / .bat in this same folder for the scripted
+// version of these three commands:
 //
-//   gcc  -c main003.c -o main003.o -I.
-//   g++  -DOPENCV_EFFECT_IMPLEMENTATION -x c++ -c opencv_effect.h -o opencv_effect.o -I. -std=c++20 $(pkg-config --cflags opencv4)
-//   g++  main003.o opencv_effect.o -o opencv_demo -L. -lraylib -lm -lpthread -ldl -lrt -lX11 $(pkg-config --libs opencv4)
+//   gcc  -c main003.c -o main003.o -I..
+//   g++  -DOPENCV_EFFECT_IMPLEMENTATION -x c++ -c opencv_effect.h -o opencv_effect.o -I.. -std=c++20 $(pkg-config --cflags opencv4)
+//   g++  main003.o opencv_effect.o -o opencv_demo -L.. -lraylib -lm -lpthread -ldl -lrt -lX11 $(pkg-config --libs opencv4)
 //
 // (On Windows: swap the last three -l flags for -lgdi32 -lwinmm, as in
 // main000.c.) OpencvEffect_SetParams isn't called here — it's only declared

@@ -15,7 +15,7 @@ RAYLIB_CONFIG   := $(RAYLIB_SRC)/config.h
 # === OpenCV (wasm static libs, for the "opencv" effect) ===
 # Built from source with the Emscripten toolchain via CMake — NOT the
 # embind-wrapped opencv.js bundle (platforms/js/build_js.py); we want plain
-# static libs to link directly into effects/opencv_effect.h's implementation
+# static libs to link directly into effects/opencv/opencv_effect.h's implementation
 # section (compiled straight from the .h — see OPENCV_OBJ below, no separate
 # .cpp). Trimmed to only the
 # modules the effect actually uses (core/imgproc/video/objdetect) via
@@ -55,25 +55,26 @@ OUT_DATA := $(TARGET).data
 OUTPUTS  := $(OUT_HTML) $(OUT_JS) $(OUT_WASM) $(OUT_DATA)
 
 SRC_C     := main.c json_mini.c
-# No SRC_CXX / trampoline .cpp: effects/opencv_effect.h is compiled AS a C++
+# No SRC_CXX / trampoline .cpp: effects/opencv/opencv_effect.h is compiled AS a C++
 # translation unit directly (see the OPENCV_OBJ rule below), via `-x c++`
 # forcing the language regardless of the .h extension. That's still a C++
 # compile of OpenCV's C++-only API -- unavoidable, since OpenCV has no C
 # API -- it just means there's no separate .cpp file left to maintain.
-OPENCV_HEADER := effects/opencv_effect.h
+OPENCV_HEADER := effects/opencv/opencv_effect.h
 OPENCV_OBJ    := opencv_effect.o
 SRC       := $(SRC_C) $(OPENCV_HEADER)
 OBJ       := $(SRC_C:.c=.o) $(OPENCV_OBJ)
 ASSETS_DIR := assets
 SHELL_FILE := shell.html
 VIDEO_EXPORT := video_export_emscripten.js
-# Todos los headers de effects/ (ascii_effect.h, crt_effect.h, etc.) y todo
-# archivo bajo assets/, empaquetado por --preload-file. Sin esto, $(OUT_HTML)
-# más abajo solo dependía de main.c/json_mini.c/effect_common.h: tocar
-# ascii_effect.h no invalidaba el binario ya compilado, y un
+# Todos los headers de effects/ (effect_common.h) y de sus subcarpetas por
+# efecto (effects/ascii/ascii_effect.h, effects/crt/crt_effect.h, etc.), más
+# todo archivo bajo assets/, empaquetado por --preload-file. Sin esto,
+# $(OUT_HTML) más abajo solo dependía de main.c/json_mini.c/effect_common.h:
+# tocar ascii_effect.h no invalidaba el binario ya compilado, y un
 # `make all` local (sin `make clean` de por medio) podía servir el .wasm
 # viejo sin avisar que el cambio nunca se compiló.
-EFFECT_HEADERS := $(wildcard effects/*.h)
+EFFECT_HEADERS := $(wildcard effects/*.h effects/*/*.h)
 ASSET_FILES := $(shell find $(ASSETS_DIR) -type f 2>/dev/null)
 
 # Functions/runtime methods React's wasmBridge.ts calls via Module.ccall(...)
@@ -189,7 +190,7 @@ raylib: emsdk
 # single OpenCV/emsdk pin that's reliably compatible. Turning off the
 # intrinsics dispatch entirely sidesteps that whole fragile path — a real
 # speed cost, but we already run at reduced processScale with per-mode
-# frame throttling (see effects/opencv_effect.h), so correctness/build-stability
+# frame throttling (see effects/opencv/opencv_effect.h), so correctness/build-stability
 # matters more here than squeezing out SIMD.
 
 opencv: emsdk
@@ -263,7 +264,7 @@ check: raylib ffmpeg opencv
 	@echo "[build] Compiling $< (C)..."
 	$(call WITH_EMSDK,$(EMCC) $(CFLAGS) -c $< -o $@)
 
-# effects/opencv_effect.h has no matching .cpp — it's compiled directly as
+# effects/opencv/opencv_effect.h has no matching .cpp — it's compiled directly as
 # its own C++ translation unit. `-x c++` forces the C++ frontend regardless
 # of the .h extension, and -DOPENCV_EFFECT_IMPLEMENTATION unlocks the real
 # OpenCV pipeline further down in that same file (see the big #if guard

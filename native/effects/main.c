@@ -9,9 +9,9 @@
  */
 
 #include "raylib.h"
-#include "ascii_effect.h"
-#include "crt_effect.h"
-#include "particles_effect.h"
+#include "ascii/ascii_effect.h"
+#include "crt/crt_effect.h"
+#include "particles/particles_effect.h"
 #include <math.h>
 
 int main(void)
