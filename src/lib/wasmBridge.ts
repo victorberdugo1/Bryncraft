@@ -24,6 +24,10 @@ declare global {
       captureFrame: (frameIndex?: number) => Promise<boolean>;
       finishEncoder: (filename: string) => Promise<void>;
       cancelRecording: () => void;
+      // Standalone JPG/PNG snapshot of the live canvas — see
+      // captureSingleImage in public/video_export.js. Independent of the
+      // startEncoder/captureFrame/finishEncoder recording lifecycle.
+      captureSingleImage?: (mimeType?: string) => Promise<Blob | null>;
       // Optional: registers (phase, message) notifications for the
       // post-capture finishing steps (encode / read-back / zip / download).
       // Purely informational — never influences what video_export.js does.
@@ -319,6 +323,18 @@ class WasmBridge {
     return result !== false;
   }
 
+  /** Standalone JPG/PNG snapshot of whatever the canvas is showing right
+   * now — for the video source, that's the frame at the timeline's
+   * current position (no stepping needed, it's already rendered there);
+   * for the camera source, it's genuinely whatever is live at the instant
+   * this is called. Independent of the startRecording/captureFrame/
+   * stopRecording multi-frame pipeline. Returns null on failure. */
+  async captureSingleImage(mimeType: "image/jpeg" | "image/png"): Promise<Blob | null> {
+    const loaded = await this.loadVideoExport();
+    if (!loaded || !window.VideoExportJS?.captureSingleImage) return null;
+    return window.VideoExportJS.captureSingleImage(mimeType);
+  }
+
   /** Ground-truth count of frames raylib has actually drawn AND presented
    * (see js_get_presented_frame_count in native/main.c). The export loop
    * polls this to confirm a real new frame landed, instead of guessing from
@@ -330,6 +346,22 @@ class WasmBridge {
     try {
       return this.module.ccall("js_get_presented_frame_count", "number", [], []) as number;
     } catch {
+      return null;
+    }
+  }
+
+  /** Reads the current ASCII/matrix character grid straight from the
+   * renderer (see js_get_ascii_grid_text in native/effects/ascii/ascii_effect.h)
+   * — real line breaks per row already baked in, resolution matches
+   * whatever the effect is actually drawing. Returns null outside wasm mode
+   * or if the grid hasn't been built yet (e.g. effect just switched). */
+  getAsciiGridText(): string | null {
+    if (this.mode !== "wasm" || !this.module?.ccall) return null;
+    try {
+      const text = this.module.ccall("js_get_ascii_grid_text", "string", [], []) as string;
+      return text || null;
+    } catch (error) {
+      console.error("[wasmBridge] getAsciiGridText failed", error);
       return null;
     }
   }

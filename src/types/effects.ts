@@ -48,7 +48,7 @@ export interface ViewportOverlayStats {
   gpuFrameTimeMs: number;
 }
 
-export type ExportFormat = "mp4" | "webm" | "png-sequence" | "mov-alpha";
+export type ExportFormat = "mp4" | "webm" | "png-sequence" | "mov-alpha" | "jpg" | "png" | "ascii-txt";
 
 export interface ExportJobState {
   running: boolean;

@@ -38,7 +38,8 @@ import asciiFontUrl from "../../native/effects/ascii/NotoSansJP-Kana.ttf?url";
 // inflar el bundle JS con sus ~130KB como string — se sirve como asset
 // estático igual que el .ttf.
 import raylibHeaderUrl from "../../native/effects/raylib.h?url";
-import libraylibUrl from "../../native/effects/libraylib.a?url";
+import libraylibWinUrl from "../../native/effects/win/libraylib.a?url";
+import libraylibLnxUrl from "../../native/effects/lnx/libraylib.a?url";
 
 const MAIN_BY_EFFECT: Record<EffectId, { filename: string; raw: string }> = {
   ascii: { filename: "main000.c", raw: main000Raw },
@@ -303,9 +304,15 @@ export function getExtras(effect: EffectId): ExtraAsset[] {
         },
         {
           filename: "libraylib.a",
-          label: "libraylib.a (compartido por las 4 demos standalone)",
+          label: "libraylib.a — Windows (MinGW)",
           kind: "binary-url",
-          url: libraylibUrl,
+          url: libraylibWinUrl,
+        },
+        {
+          filename: "libraylib.a",
+          label: "libraylib.a — Linux",
+          kind: "binary-url",
+          url: libraylibLnxUrl,
         },
       ];
     case "opencv":

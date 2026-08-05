@@ -414,6 +414,45 @@
   }
 
   const VideoExportJS = {
+    // Standalone JPG/PNG snapshot of whatever is on the canvas right now —
+    // completely independent of startRecording/captureFrame's multi-frame
+    // pipeline (no ffmpeg, no zip, no g_isRecording state). Same
+    // lock/read/unlock dance as captureFrame so raylib can't redraw between
+    // the lock and the read, just without the retry-on-blank logic (a
+    // single manual snapshot has no "next frame" to fall back to — if it's
+    // blank, it's blank because that's what's on screen).
+    captureSingleImage: async function (mimeType) {
+      const canvas = getCanvas();
+      if (!canvas) {
+        console.error('[VideoExport] No canvas available for snapshot');
+        return null;
+      }
+      if (window.Module?.ccall) {
+        try {
+          window.Module.ccall('js_lock_frame_capture', 'void', [], []);
+        } catch (error) {
+          console.warn('[VideoExport] could not lock frame capture', error);
+        }
+      }
+      let dataUrl = null;
+      try {
+        dataUrl = canvas.toDataURL(mimeType || 'image/png', 0.95);
+      } catch (error) {
+        console.error('[VideoExport] snapshot failed', error);
+      } finally {
+        if (window.Module?.ccall) {
+          try {
+            window.Module.ccall('js_unlock_frame_capture', 'void', [], []);
+          } catch (error) {
+            console.warn('[VideoExport] could not unlock frame capture', error);
+          }
+        }
+      }
+      if (!dataUrl) return null;
+      const res = await fetch(dataUrl);
+      return res.blob();
+    },
+
     // Registers a callback fired as (phase, message) at each stage of the
     // post-capture finishing process. Never touches capture/encode
     // behavior — safe to attach/detach at any time, including mid-export.

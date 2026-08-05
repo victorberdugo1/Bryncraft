@@ -10,7 +10,7 @@ import { Progress } from "@/components/ui/progress";
 import { useAppStore } from "@/store/useAppStore";
 import type { ExportFormat } from "@/types/effects";
 import { wasmBridge } from "@/lib/wasmBridge";
-import { Download, Film, Image as ImageIcon, Layers, X } from "lucide-react";
+import { Download, FileText, Film, Image as ImageIcon, Layers, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const FORMATS: { id: ExportFormat; label: string; icon: typeof Film; implemented: boolean }[] = [
@@ -18,7 +18,29 @@ const FORMATS: { id: ExportFormat; label: string; icon: typeof Film; implemented
   { id: "webm", label: "WebM", icon: Film, implemented: true },
   { id: "png-sequence", label: "PNG Sequence", icon: ImageIcon, implemented: true },
   { id: "mov-alpha", label: "MOV (Alpha)", icon: Layers, implemented: true },
+  { id: "jpg", label: "JPG (frame)", icon: ImageIcon, implemented: true },
+  { id: "png", label: "PNG (frame)", icon: ImageIcon, implemented: true },
+  { id: "ascii-txt", label: "TXT (chars)", icon: FileText, implemented: true },
 ];
+
+// TXT solo tiene sentido con el efecto ascii/matrix activo — el resto de
+// efectos no tienen una rejilla de caracteres que exportar.
+function availableFormats(activeEffect: string): typeof FORMATS {
+  return FORMATS.filter((f) => f.id !== "ascii-txt" || activeEffect === "ascii");
+}
+
+function downloadBlob(filename: string, blob: Blob) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function downloadTextFile(filename: string, content: string) {
+  downloadBlob(filename, new Blob([content], { type: "text/plain;charset=utf-8" }));
+}
 
 interface ExportPanelProps {
   trigger: React.ReactNode;
@@ -110,6 +132,7 @@ export function ExportPanel({ trigger }: ExportPanelProps) {
   const setPlaying = useAppStore((s) => s.setPlaying);
   const setCurrentFrame = useAppStore((s) => s.setCurrentFrame);
   const videoFrameCount = useAppStore((s) => s.video.frames?.length ?? 0);
+  const activeEffect = useAppStore((s) => s.activeEffect);
 
   const runIdRef = useRef(0);
 
@@ -157,6 +180,31 @@ export function ExportPanel({ trigger }: ExportPanelProps) {
   async function handleStart() {
     const spec = FORMATS.find((f) => f.id === format);
     if (!spec?.implemented) return;
+
+    // JPG/PNG/TXT son capturas instantáneas de un único frame — el que
+    // esté mostrando el canvas ahora mismo (la posición del slider si hay
+    // video cargado, o lo que la cámara esté enseñando en este instante si
+    // no hay video). No pasan por el pipeline de startExport/captureFrame/
+    // stopRecording de abajo (eso es para mp4/webm/png-sequence/mov-alpha,
+    // que sí necesitan recorrer frame a frame).
+    if (format === "jpg" || format === "png") {
+      const blob = await wasmBridge.captureSingleImage(format === "jpg" ? "image/jpeg" : "image/png");
+      if (!blob) {
+        console.error("[ExportPanel] snapshot failed");
+        return;
+      }
+      downloadBlob(`export.${format}`, blob);
+      return;
+    }
+    if (format === "ascii-txt") {
+      const text = wasmBridge.getAsciiGridText();
+      if (!text) {
+        console.error("[ExportPanel] no ascii grid available to export yet");
+        return;
+      }
+      downloadTextFile("ascii-frame.txt", text);
+      return;
+    }
 
     const canvas = document.getElementById("canvas") as HTMLCanvasElement | null;
     if (!canvas) {
@@ -286,7 +334,7 @@ export function ExportPanel({ trigger }: ExportPanelProps) {
         </DialogDescription>
 
         <div className="mt-4 grid grid-cols-2 gap-2">
-          {FORMATS.map((f) => (
+          {availableFormats(activeEffect).map((f) => (
             <button
               key={f.id}
               onClick={() => f.implemented && setFormat(f.id)}

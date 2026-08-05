@@ -24,6 +24,7 @@ void AsciiEffect_Draw(RenderTexture2D scene, int screenW, int screenH);
 void AsciiEffect_Unload(void);
 
 void js_set_matrix_font_data(size_t bufSize, uint8_t *buf);
+const char *js_get_ascii_grid_text(void);
 #ifdef __cplusplus
 }
 #endif
@@ -386,6 +387,66 @@ void AsciiEffect_Draw(RenderTexture2D scene, int screenW, int screenH) {
                 DrawText(glyph, x * fontSize, y * fontSize, fontSize, ASCII_g_params.foreground);
             }
     }
+}
+// Vuelca la rejilla de caracteres actual (la que se está dibujando este
+// frame) a un string con salto de línea real tras cada fila, para
+// exportarla tal cual a un .txt. cols/rows son los mismos que determinan
+// el render (screenW/fontSize, screenH/fontSize), así que el .txt respeta
+// la resolución real del efecto sin necesidad de que JS conozca cols/rows
+// por separado.
+//
+// En modo matrix se usa ASCII_g_baseGlyphs (la capa base con shimmer, con
+// la que se compone casi toda la rejilla en cualquier instante) en vez de
+// ASCII_g_matrixGlyphs (que solo tiene valor válido en las celdas que un
+// trail activo ha pisado en algún momento, y queda obsoleto en el resto).
+// Es una aproximación honesta del "qué se ve ahora mismo" y no una
+// réplica exacta del compositing de streams frame a frame — precisar eso
+// pediría rastrear qué celdas cubre cada trail en este instante exacto.
+//
+// No se declara con EMSCRIPTEN_KEEPALIVE (la macro de <emscripten.h>) a
+// propósito: main.c incluye este header ANTES de <emscripten.h>, así que
+// esa macro todavía no existiría en este punto. __attribute__((used)) es
+// exactamente a lo que se expande esa macro, así que el efecto es
+// idéntico sin depender del orden de includes.
+#ifdef __EMSCRIPTEN__
+__attribute__((used))
+#endif
+const char *js_get_ascii_grid_text(void) {
+    static char *buf = NULL;
+    free(buf);
+    buf = NULL;
+
+    int cols = ASCII_g_gridCols, rows = ASCII_g_gridRows;
+    if (cols <= 0 || rows <= 0) {
+        buf = (char *)malloc(1);
+        buf[0] = '\0';
+        return buf;
+    }
+
+    // Peor caso: 4 bytes UTF-8 por glyph (kana matrix) + '\n' por fila + NUL.
+    size_t cap = (size_t)cols * (size_t)rows * 4 + (size_t)rows + 1;
+    buf = (char *)malloc(cap);
+    if (!buf) return "";
+
+    size_t pos = 0;
+    bool matrix = (ASCII_g_params.mode == ASCII_MODE_MATRIX);
+    for (int y = 0; y < rows; y++) {
+        for (int x = 0; x < cols; x++) {
+            int idx = y * cols + x;
+            if (matrix) {
+                int cp = ASCII_g_baseGlyphs ? ASCII_g_baseGlyphs[idx] : ' ';
+                if (cp <= 0) cp = ' ';
+                int size = 0;
+                const char *enc = CodepointToUTF8(cp, &size);
+                if (size > 0) { memcpy(buf + pos, enc, (size_t)size); pos += (size_t)size; }
+            } else {
+                buf[pos++] = ASCII_g_glyphCache ? ASCII_g_glyphCache[idx] : ' ';
+            }
+        }
+        buf[pos++] = '\n';
+    }
+    buf[pos] = '\0';
+    return buf;
 }
 void AsciiEffect_Unload(void) {
     if (ASCII_g_gridCols > 0) { UnloadRenderTexture(ASCII_g_gridTarget); ASCII_g_gridCols = 0; ASCII_g_gridRows = 0; }
