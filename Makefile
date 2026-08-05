@@ -80,8 +80,20 @@ delete: destroy ## Alias for destroy
 shell-%: ## Open a shell in a running container, e.g. make shell-frontend
 	docker compose exec $* sh
 
+clean-wasm: ## Clean WASM files locally + rebuild WITHOUT cache (safe, only THIS project)
+	@echo "$(YELLOW)[clean-wasm] Removing public/wasm/ and public/ffmpeg/...$(RESET)"
+	@rm -rf public/wasm public/ffmpeg
+	@echo "$(YELLOW)[clean-wasm] Stopping THIS project's containers...$(RESET)"
+	@docker compose down
+	@echo "$(YELLOW)[clean-wasm] Rebuilding frontend WITHOUT Docker cache...$(RESET)"
+	@docker compose build --no-cache frontend
+	@echo "$(CYAN)OK clean-wasm complete. Run 'make up' to start.$(RESET)"
+
+reset: clean-wasm up ## Full reset: clean WASM + rebuild + start (SAFE - only THIS project)
+	@echo "$(CYAN)OK reset complete. All services are running.$(RESET)"
+
 help: ## Show this help message
 	@echo "$(YELLOW)Available commands:$(RESET)"
 	@awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z0-9_%-]+:.*##/ { printf "  $(CYAN)%-15s$(RESET) %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
 
-.PHONY: all up down build logs clean destroy delete re shell-% wasm wasm-full wasm-assets help
+.PHONY: all up down build logs clean destroy delete re shell-% wasm wasm-full wasm-assets clean-wasm reset help
