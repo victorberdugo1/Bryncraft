@@ -61,8 +61,9 @@ export function MobileDockShell() {
         size="min(55vh, 380px)"
         // Anchored at the far left, clear of the toolbar's buttons — the
         // toolbar itself now reserves space for this via pl-16 in
-        // CenterViewport.
-        tabPositionClassName="top-0 left-1 rounded-b-xl flex-row w-14 h-6"
+        // CenterViewport. Attached to the panel's own bottom edge (default
+        // behaviour) so it travels with the panel when it opens/closes.
+        tabPositionClassName="bottom-0 left-1 translate-y-full rounded-b-xl flex-row w-14 h-6"
       >
         <CodePanel />
       </EdgeDock>
@@ -74,6 +75,10 @@ export function MobileDockShell() {
         open={openEdge.bottom}
         onToggle={() => toggle("bottom")}
         size="min(160px, 25vh)"
+        // Pinned to the screen edge, not the panel: a Chrome-on-mobile bug
+        // hides this tab if placed flush at the very bottom, so it stays
+        // fixed top-right at all times. Do not switch this to attached mode.
+        tabFixedToScreen
         tabPositionClassName="top-0 right-0 rounded-bl-xl flex-row w-14 h-6"
       >
         <div className="flex flex-col pb-4">
