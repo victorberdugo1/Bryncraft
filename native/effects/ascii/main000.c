@@ -1,10 +1,9 @@
-// main000.c — minimal example: ASCII Renderer
-// Self-contained folder: ascii_effect.h + main000.c + NotoSansJP-Kana.ttf
-// (needed only for the Matrix mode). raylib.h / libraylib.a are shared one
-// level up, in native/effects/.
+// main000.c — minimal ASCII Renderer example
 //
-// gcc main000.c -o ascii_demo.exe -I.. -L.. -lraylib -lgdi32 -lwinmm
-// gcc main000.c -o ascii_demo -I.. -L.. -lraylib -lm -lpthread -ldl -lrt -lX11
+// gcc main000.c -o ascii_demo.exe -I. -L. -lraylib -lgdi32 -lwinmm   (Windows)
+// gcc main000.c -o ascii_demo -I. -L. -lraylib -lm -lpthread -ldl -lrt -lX11  (Linux)
+//
+// Part of Bryncraft (https://bryncraft.online/) — created by Victor Berdugo
 
 #include "raylib.h"
 #include "ascii_effect.h"

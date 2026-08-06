@@ -69,6 +69,13 @@ function fmtFloat(v: unknown): string {
   return `${n.toFixed(3)}f`;
 }
 
+// Escapa comillas y backslashes para literales de string en C (usado por
+// campos de texto libre como vhsTimestamp/vhsLabel, a diferencia de ramp/
+// matrixChars que ya vienen de charsets controlados).
+function escapeCString(v: unknown): string {
+  return String(v).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
 function hexToRgbComment(hex: string) {
   const h = hex.replace("#", "");
   const r = parseInt(h.slice(0, 2), 16);
@@ -92,6 +99,16 @@ const ASCII_MATRIX_DIRECTION_ENUM: Record<string, string> = {
   down: "ASCII_MATRIX_DIR_DOWN",
   up: "ASCII_MATRIX_DIR_UP",
   both: "ASCII_MATRIX_DIR_BOTH",
+};
+
+const CRT_VHS_ICON_ENUM: Record<string, string> = {
+  none: "CRT_VHS_ICON_NONE",
+  play: "CRT_VHS_ICON_PLAY",
+  pause: "CRT_VHS_ICON_PAUSE",
+  rew: "CRT_VHS_ICON_REW",
+  ff: "CRT_VHS_ICON_FF",
+  stop: "CRT_VHS_ICON_STOP",
+  rec: "CRT_VHS_ICON_REC",
 };
 
 const PARTICLE_MODE_ENUM: Record<string, string> = {
@@ -153,6 +170,19 @@ function buildCrtParamsBlock(params: EffectParams): string {
     .noise               = ${fmtFloat(params.noise)},
     .chromaticAberration = ${fmtFloat(params.chromaticAberration)},
     .flicker             = ${fmtFloat(params.flicker)},
+
+    .trackingGlitch      = ${fmtFloat(params.trackingGlitch)},
+    .waveDistortion      = ${fmtFloat(params.waveDistortion)},
+    .waveSpeed           = ${fmtFloat(params.waveSpeed)},
+    .dropoutLines        = ${fmtFloat(params.dropoutLines)},
+    .jitter              = ${fmtFloat(params.jitter)},
+    .verticalRoll        = ${fmtFloat(params.verticalRoll)},
+    .ghosting            = ${fmtFloat(params.ghosting)},
+
+    .vhsOverlay   = ${params.vhsOverlay ? "true" : "false"},
+    .vhsIcon      = ${CRT_VHS_ICON_ENUM[String(params.vhsIcon)] ?? "CRT_VHS_ICON_NONE"},
+    .vhsTimestamp = "${escapeCString(params.vhsTimestamp)}",
+    .vhsLabel     = "${escapeCString(params.vhsLabel)}",
 };
 `;
 }

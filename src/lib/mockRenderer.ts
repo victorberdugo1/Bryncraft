@@ -46,6 +46,12 @@ export class MockRenderer {
   private matrixBaseGlyphs: string[] = [];
   private matrixCols = 0;
   private matrixRows = 0;
+  // Ring buffer of recent frames for the CRT "ghosting" param — sampled a
+  // few frames apart (not every frame) so each stored copy shows the scene
+  // in a visibly different position, like the classic multi-exposure "many
+  // hands" trail from old analog video, instead of one imperceptible echo.
+  private crtGhostHistory: HTMLCanvasElement[] = [];
+  private crtGhostFrameCounter = 0;
   private matrixColLumaPrev: number[] = [];
   // Canvas offscreen de readback para renderAscii/renderAsciiMatrix — se
   // recreaba con document.createElement("canvas") en CADA frame antes de
@@ -616,6 +622,90 @@ export class MockRenderer {
     const vignette = Number(this.params.vignette ?? 0.3);
     const flicker = Number(this.params.flicker ?? 0.1);
     const aberration = Number(this.params.chromaticAberration ?? 0.4);
+    const ghosting = Number(this.params.ghosting ?? 0);
+    const verticalRoll = Number(this.params.verticalRoll ?? 0);
+    const trackingGlitch = Number(this.params.trackingGlitch ?? 0);
+    const waveDistortion = Number(this.params.waveDistortion ?? 0);
+    const waveSpeed = Number(this.params.waveSpeed ?? 1.5);
+    const dropoutLines = Number(this.params.dropoutLines ?? 0);
+    const jitter = Number(this.params.jitter ?? 0);
+    const vhsOverlay = Boolean(this.params.vhsOverlay ?? false);
+    const vhsIcon = String(this.params.vhsIcon ?? "none");
+    const vhsTimestamp = String(this.params.vhsTimestamp ?? "");
+    const vhsLabel = String(this.params.vhsLabel ?? "SP");
+
+    // ghosting history sampling — grab the raw scene (before any CRT
+    // distortion is applied below) every few frames, not every frame, so
+    // each stored copy shows the scene at a visibly different moment. That's
+    // what makes this read as distinct trailing copies (like old analog
+    // multi-exposure "many hands" shots) instead of one imperceptible echo.
+    if (ghosting > 0.01) {
+      this.crtGhostFrameCounter++;
+      const sampleEvery = 4;
+      if (this.crtGhostFrameCounter % sampleEvery === 0) {
+        const snap = document.createElement("canvas");
+        snap.width = w;
+        snap.height = h;
+        snap.getContext("2d")!.drawImage(this.canvas, 0, 0);
+        this.crtGhostHistory.unshift(snap);
+        if (this.crtGhostHistory.length > 10) this.crtGhostHistory.length = 10;
+      }
+    } else if (this.crtGhostHistory.length > 0) {
+      // ghosting turned off — drop the history so stale frames don't
+      // reappear if the user cranks it back up later
+      this.crtGhostHistory = [];
+      this.crtGhostFrameCounter = 0;
+    }
+
+    // vertical roll — mirrors the shader's `uv.y = fract(uv.y + uTime*uVerticalRoll)`
+    if (Math.abs(verticalRoll) > 0.001) {
+      const rollPx = (((t / 1000) * verticalRoll * h) % h + h) % h;
+      if (rollPx > 0.5) {
+        const snapshot = ctx.getImageData(0, 0, w, h);
+        ctx.putImageData(snapshot, 0, -rollPx);
+        ctx.putImageData(snapshot, 0, h - rollPx);
+      }
+    }
+
+    // horizontal jitter / wave distortion — cheap per-frame row shift instead
+    // of the shader's per-pixel sine, close enough for a live preview
+    if (jitter > 0.01 || waveDistortion > 0.01) {
+      const snapshot = ctx.getImageData(0, 0, w, h);
+      ctx.putImageData(snapshot, 0, 0);
+      const rows = 24;
+      const rowH = Math.ceil(h / rows);
+      for (let i = 0; i < rows; i++) {
+        const y = i * rowH;
+        const wave = Math.sin(y * 0.05 + (t / 1000) * waveSpeed) * waveDistortion * 2;
+        const jit = (Math.random() - 0.5) * jitter * 2;
+        const dx = wave + jit;
+        if (Math.abs(dx) > 0.3) {
+          ctx.drawImage(this.canvas, 0, y, w, rowH, dx, y, w, rowH);
+        }
+      }
+    }
+
+    // tracking glitch — a horizontal band of torn/shifted rows, like a
+    // VHS tracking error rolling down the tape
+    if (trackingGlitch > 0.01) {
+      const bandY = (((t / 1000) * 0.15) % 1 + 1) % 1 * h;
+      const bandH = h * (0.06 + 0.08 * (Math.sin(t / 400) * 0.5 + 0.5));
+      const y0 = Math.max(0, bandY - bandH / 2);
+      const y1 = Math.min(h, bandY + bandH / 2);
+      for (let y = y0; y < y1; y += 2) {
+        const shift = (Math.random() - 0.5) * trackingGlitch * 0.2 * w;
+        ctx.drawImage(this.canvas, 0, y, w, 2, shift, y, w, 2);
+      }
+    }
+
+    // dropout lines — random bright horizontal flecks, like tape dropout
+    if (dropoutLines > 0.001) {
+      const n = Math.floor(dropoutLines * 40);
+      ctx.fillStyle = "rgba(255,255,255,0.85)";
+      for (let i = 0; i < n; i++) {
+        ctx.fillRect(0, Math.random() * h, w, 1);
+      }
+    }
 
     // crude chromatic aberration via offset composite copies
     if (aberration > 0.01) {
@@ -674,6 +764,54 @@ export class MockRenderer {
     if (flicker > 0.001) {
       ctx.fillStyle = `rgba(255,255,255,${Math.random() * flicker * 0.15})`;
       ctx.fillRect(0, 0, w, h);
+    }
+
+    // ghosting — draws up to 10 distinct trailing copies sampled from
+    // recent frames (see the history sampling above), each fainter and
+    // slightly offset than the last, so it reads as the classic multi-
+    // exposure "trailing hands" look from old analog video — ghosting = 1.0
+    // means the full 10 ghosts trailing behind.
+    if (ghosting > 0.01 && this.crtGhostHistory.length > 0) {
+      const numGhosts = Math.min(this.crtGhostHistory.length, Math.max(1, Math.round(ghosting * 10)));
+      ctx.save();
+      for (let i = 0; i < numGhosts; i++) {
+        const frac = 1 - i / 10; // nearer ghosts are stronger, 10th fades to ~0
+        const alpha = Math.max(0, 0.55 * frac * Math.min(1, ghosting * 1.3));
+        const offset = 3 + i * (2 + ghosting * 2); // farther ghosts drift further
+        ctx.globalAlpha = alpha;
+        ctx.drawImage(this.crtGhostHistory[i], offset, offset * 0.2);
+      }
+      ctx.restore();
+    }
+
+    // VHS overlay — icon/label top-left, timestamp bottom-left, mirrors
+    // CRT_DrawVhsOverlay in crt_effect.h
+    if (vhsOverlay) {
+      const iconText: Record<string, string> = {
+        play: "▶ PLAY",
+        pause: "‖ PAUSE",
+        rew: "◀◀ REW",
+        ff: "▶▶ FF",
+        stop: "■ STOP",
+        rec: "● REC",
+      };
+      const pad = 10;
+      ctx.save();
+      ctx.font = "12px monospace";
+      ctx.textBaseline = "top";
+      const blink = Math.sin(t / 1000 * 3) * 0.5 + 0.5;
+      const label = iconText[vhsIcon];
+      if (label) {
+        ctx.fillStyle = `rgba(255,255,255,${0.6 + 0.4 * blink})`;
+        ctx.fillText(label, pad, pad);
+        if (vhsLabel) ctx.fillText(`[${vhsLabel}]`, pad, pad + 14);
+      }
+      if (vhsTimestamp) {
+        ctx.fillStyle = "rgba(255,255,255,0.85)";
+        ctx.textBaseline = "bottom";
+        ctx.fillText(vhsTimestamp, pad, h - pad);
+      }
+      ctx.restore();
     }
   }
 

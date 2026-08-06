@@ -1,7 +1,10 @@
 /*
  * ascii_effect.h — single-header ASCII post‑processing effect for raylib
- * Dependencia JSON solo en __EMSCRIPTEN__
+ * JSON only on __EMSCRIPTEN__
+ *
+ * Part of Bryncraft (https://bryncraft.online/) — created by Victor Berdugo
  */
+
 #ifndef ASCII_EFFECT_H
 #define ASCII_EFFECT_H
 #include "raylib.h"
@@ -274,13 +277,21 @@ void AsciiEffect_Draw(RenderTexture2D scene, int screenW, int screenH) {
             (Vector2){ 0, 0 }, 0.0f, WHITE);
         EndTextureMode();
         Image img = LoadImageFromTexture(ASCII_g_gridTarget.texture);
+        unsigned char *pixels = (unsigned char *)img.data;
+        bool isRGBA8 = (img.format == PIXELFORMAT_UNCOMPRESSED_R8G8B8A8);
         if (ASCII_g_params.mode == ASCII_MODE_MATRIX) {
             for (int x = 0; x < cols; x++) {
                 float sum = 0.0f;
                 for (int y = 0; y < rows; y++) {
                     int srcY = rows - 1 - y;
-                    Color px = GetImageColor(img, x, srcY);
-                    float luma = (px.r + px.g + px.b) / (3.0f * 255.0f);
+                    float luma;
+                    if (isRGBA8) {
+                        unsigned char *p = pixels + (srcY * cols + x) * 4;
+                        luma = (p[0] + p[1] + p[2]) / (3.0f * 255.0f);
+                    } else {
+                        Color px = GetImageColor(img, x, srcY);
+                        luma = (px.r + px.g + px.b) / (3.0f * 255.0f);
+                    }
                     ASCII_g_cellLuma[y * cols + x] = luma;
                     sum += luma;
                 }
@@ -291,15 +302,25 @@ void AsciiEffect_Draw(RenderTexture2D scene, int screenW, int screenH) {
         } else {
             int rampLen = (int)strlen(ASCII_g_params.ramp);
             if (rampLen == 0) rampLen = 1;
+            float invGamma = 1.0f / fmaxf(0.01f, ASCII_g_params.gamma);
+            float contrast = ASCII_g_params.contrast;
+            float brightness = ASCII_g_params.brightness;
+            bool invert = ASCII_g_params.invert;
             for (int y = 0; y < rows; y++) {
                 int srcY = rows - 1 - y;
                 for (int x = 0; x < cols; x++) {
-                    Color px = GetImageColor(img, x, srcY);
-                    float lum = (px.r + px.g + px.b) / (3.0f * 255.0f);
-                    lum = powf(lum, 1.0f / fmaxf(0.01f, ASCII_g_params.gamma));
-                    lum = (lum - 0.5f) * ASCII_g_params.contrast + 0.5f + (ASCII_g_params.brightness - 1.0f);
+                    float lum;
+                    if (isRGBA8) {
+                        unsigned char *p = pixels + (srcY * cols + x) * 4;
+                        lum = (p[0] + p[1] + p[2]) / (3.0f * 255.0f);
+                    } else {
+                        Color px = GetImageColor(img, x, srcY);
+                        lum = (px.r + px.g + px.b) / (3.0f * 255.0f);
+                    }
+                    lum = powf(lum, invGamma);
+                    lum = (lum - 0.5f) * contrast + 0.5f + (brightness - 1.0f);
                     if (lum < 0) lum = 0; if (lum > 1) lum = 1;
-                    if (ASCII_g_params.invert) lum = 1.0f - lum;
+                    if (invert) lum = 1.0f - lum;
                     int idx = (int)(lum * (rampLen - 1));
                     ASCII_g_glyphCache[y * cols + x] = ASCII_g_params.ramp[idx];
                 }
@@ -392,26 +413,7 @@ void AsciiEffect_Draw(RenderTexture2D scene, int screenW, int screenH) {
             }
     }
 }
-// Vuelca la rejilla de caracteres actual (la que se está dibujando este
-// frame) a un string con salto de línea real tras cada fila, para
-// exportarla tal cual a un .txt. cols/rows son los mismos que determinan
-// el render (screenW/fontSize, screenH/fontSize), así que el .txt respeta
-// la resolución real del efecto sin necesidad de que JS conozca cols/rows
-// por separado.
-//
-// En modo matrix se usa ASCII_g_baseGlyphs (la capa base con shimmer, con
-// la que se compone casi toda la rejilla en cualquier instante) en vez de
-// ASCII_g_matrixGlyphs (que solo tiene valor válido en las celdas que un
-// trail activo ha pisado en algún momento, y queda obsoleto en el resto).
-// Es una aproximación honesta del "qué se ve ahora mismo" y no una
-// réplica exacta del compositing de streams frame a frame — precisar eso
-// pediría rastrear qué celdas cubre cada trail en este instante exacto.
-//
-// No se declara con EMSCRIPTEN_KEEPALIVE (la macro de <emscripten.h>) a
-// propósito: main.c incluye este header ANTES de <emscripten.h>, así que
-// esa macro todavía no existiría en este punto. __attribute__((used)) es
-// exactamente a lo que se expande esa macro, así que el efecto es
-// idéntico sin depender del orden de includes.
+
 #ifdef __EMSCRIPTEN__
 EMSCRIPTEN_KEEPALIVE
 #endif
@@ -427,7 +429,6 @@ const char *js_get_ascii_grid_text(void) {
         return buf;
     }
 
-    // Peor caso: 4 bytes UTF-8 por glyph (kana matrix) + '\n' por fila + NUL.
     size_t cap = (size_t)cols * (size_t)rows * 4 + (size_t)rows + 1;
     buf = (char *)malloc(cap);
     if (!buf) return "";

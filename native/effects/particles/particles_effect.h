@@ -1,30 +1,7 @@
-/*
- * particles_effect.h — single-header particle system for raylib
- * Dependencia JSON solo en __EMSCRIPTEN__
+/* particles_effect.h — single-header particle system for raylib
+ * Modes: fountain, rain, embers with optional reactivity (GPU→CPU downsampling)
  *
- * Modos:
- *   fountain — comportamiento original: brota de un punto (spawnX/spawnY)
- *   rain     — cae desde el borde superior, con viento y velocidad terminal
- *   embers   — sube desde abajo con vaivén, brilla más sobre zonas claras de la escena
- *
- * "reactive" (los 3 modos) hace un downsample de la escena a una textura
- * pequeña una vez por frame y la lee a CPU para:
- *   1) teñir/modular el color y brillo de las partículas según lo que hay debajo
- *   2) desviar su movimiento siguiendo el gradiente de luminancia de la escena
- *      (flow field: las partículas se curvan hacia zonas brillantes)
- *   3) sesgar dónde nacen (embers preferentemente sobre zonas claras, rain sobre
- *      zonas oscuras) — en fountain no aplica, porque el punto de nacimiento es fijo
- *
- * Además de luminancia estática, ahora se compara cada frame contra el
- * anterior (downsample vs downsample) para obtener un campo de "movimiento".
- * Esto es lo que hace que la interacción se sienta real: las partículas no
- * solo reaccionan a que algo esté claro/oscuro, reaccionan a que algo se
- * esté MOVIENDO en el vídeo (el gradiente de movimiento empuja el flow
- * field, y el spawn bias / tinte / brillo también lo tienen en cuenta).
- *
- * Apagado por defecto en el header (el toggle real lo pone effects.ts); el
- * readback GPU->CPU tiene coste, sobre todo en wasm, pero a esta resolución
- * es barato comparado con el grid de ASCII.
+ * Part of Bryncraft (https://bryncraft.online/) — created by Victor Berdugo
  */
 
 #ifndef PARTICLES_EFFECT_H
@@ -54,9 +31,6 @@ void ParticlesEffect_Draw(RenderTexture2D scene, int screenW, int screenH);
 }
 #endif
 
-/* =========================================================
- * Implementación (prefijo PART_ para evitar conflictos)
- * ========================================================= */
 #define PARTICLES_MAX 20000
 
 #define PART_MODE_FOUNTAIN 0
@@ -71,7 +45,7 @@ typedef struct {
     Vector2 velocity;
     float age;
     float lifetime;
-    float phase; // fase aleatoria para el vaivén de embers
+    float phase;
     bool alive;
 } PART_Particle;
 
@@ -85,12 +59,12 @@ typedef struct {
     float sizeFalloff;
     Color color;
     float spreadDeg;
-    float spawnX; // normalizado 0..1 (solo fountain)
-    float spawnY; // normalizado 0..1 (solo fountain)
-    float windX;  // solo rain/embers
-    int reactive; // 0/1, ahora afecta a los 3 modos
-    float reactiveStrength; // 0..1, cuánto pesa el tinte/sesgo de spawn
-    float flowStrength;     // 0..2, cuánto empuja el gradiente de luz/movimiento al movimiento
+    float spawnX;
+    float spawnY;
+    float windX;
+    int reactive;
+    float reactiveStrength;
+    float flowStrength;
 } PART_ParticleParams;
 
 static PART_ParticleParams PART_g_params = {
@@ -114,13 +88,9 @@ static PART_ParticleParams PART_g_params = {
 static PART_Particle PART_g_pool[PARTICLES_MAX];
 static int PART_g_aliveCount = 0;
 static float PART_g_spawnAccumulator = 0.0f;
-/* Últimas dimensiones vistas en Draw(); Update() las necesita para normalizar
- * posiciones al muestrear el flow field, y puede llamarse antes que Draw() en
- * el primer frame o correr a una cadencia distinta de la escena offscreen. */
 static int PART_g_lastScreenW = 1;
 static int PART_g_lastScreenH = 1;
 
-/* --- downsample de la escena para reactividad --- */
 static RenderTexture2D PART_g_sceneSmall;
 static bool PART_g_sceneSmallReady = false;
 static Image PART_g_sceneImg = { 0 };
@@ -143,10 +113,6 @@ static void PART_UpdateSceneSample(RenderTexture2D scene) {
     );
     EndTextureMode();
 
-    // Antes de reemplazar el frame, lo guardamos como "anterior" para poder
-    // calcular movimiento (diferencia entre frames) en vez de solo brillo
-    // estático. Sin esto las partículas solo podían teñirse/sesgarse por
-    // luz, nunca "seguir" algo que se mueve.
     if (PART_g_sceneImg.data) {
         if (PART_g_scenePrevImg.data) UnloadImage(PART_g_scenePrevImg);
         PART_g_scenePrevImg = PART_g_sceneImg; // toma ownership
@@ -157,17 +123,38 @@ static void PART_UpdateSceneSample(RenderTexture2D scene) {
     if (PART_g_hasPrevFrame) {
         if (PART_g_motionImg.data) UnloadImage(PART_g_motionImg);
         PART_g_motionImg = GenImageColor(PART_SCENE_GRID_W, PART_SCENE_GRID_H, BLACK);
+        unsigned char *cur_pixels = (unsigned char *)PART_g_sceneImg.data;
+        unsigned char *prev_pixels = (unsigned char *)PART_g_scenePrevImg.data;
+        unsigned char *motion_pixels = (unsigned char *)PART_g_motionImg.data;
+        bool isCurRGBA8 = (PART_g_sceneImg.format == PIXELFORMAT_UNCOMPRESSED_R8G8B8A8);
+        bool isPrevRGBA8 = (PART_g_scenePrevImg.format == PIXELFORMAT_UNCOMPRESSED_R8G8B8A8);
+        bool isMotionRGBA8 = (PART_g_motionImg.format == PIXELFORMAT_UNCOMPRESSED_R8G8B8A8);
         for (int y = 0; y < PART_SCENE_GRID_H; y++) {
             for (int x = 0; x < PART_SCENE_GRID_W; x++) {
-                Color cur = GetImageColor(PART_g_sceneImg, x, y);
-                Color prev = GetImageColor(PART_g_scenePrevImg, x, y);
-                float diff = (fabsf((float)cur.r - (float)prev.r) +
-                              fabsf((float)cur.g - (float)prev.g) +
-                              fabsf((float)cur.b - (float)prev.b)) / (3.0f * 255.0f);
-                float m = diff * 4.0f; // realce para que el movimiento se note claramente
+                int idx = y * PART_SCENE_GRID_W + x;
+                float diff;
+                if (isCurRGBA8 && isPrevRGBA8) {
+                    unsigned char *cp = cur_pixels + idx * 4;
+                    unsigned char *pp = prev_pixels + idx * 4;
+                    diff = (fabsf((float)cp[0] - (float)pp[0]) +
+                            fabsf((float)cp[1] - (float)pp[1]) +
+                            fabsf((float)cp[2] - (float)pp[2])) / (3.0f * 255.0f);
+                } else {
+                    Color cur = GetImageColor(PART_g_sceneImg, x, y);
+                    Color prev = GetImageColor(PART_g_scenePrevImg, x, y);
+                    diff = (fabsf((float)cur.r - (float)prev.r) +
+                            fabsf((float)cur.g - (float)prev.g) +
+                            fabsf((float)cur.b - (float)prev.b)) / (3.0f * 255.0f);
+                }
+                float m = diff * 4.0f;
                 if (m > 1.0f) m = 1.0f;
                 unsigned char mb = (unsigned char)(m * 255.0f);
-                ImageDrawPixel(&PART_g_motionImg, x, y, (Color){ mb, mb, mb, 255 });
+                if (isMotionRGBA8) {
+                    unsigned char *mp = motion_pixels + idx * 4;
+                    mp[0] = mb; mp[1] = mb; mp[2] = mb; mp[3] = 255;
+                } else {
+                    ImageDrawPixel(&PART_g_motionImg, x, y, (Color){ mb, mb, mb, 255 });
+                }
             }
         }
     }
@@ -183,21 +170,31 @@ static Color PART_SampleScene(float normX, float normY) {
     int y = (int)(normY * PART_SCENE_GRID_H);
     if (x < 0) x = 0; if (x >= PART_SCENE_GRID_W) x = PART_SCENE_GRID_W - 1;
     if (y < 0) y = 0; if (y >= PART_SCENE_GRID_H) y = PART_SCENE_GRID_H - 1;
+    if (PART_g_sceneImg.format == PIXELFORMAT_UNCOMPRESSED_R8G8B8A8) {
+        unsigned char *p = (unsigned char *)PART_g_sceneImg.data + (y * PART_SCENE_GRID_W + x) * 4;
+        return (Color){ p[0], p[1], p[2], p[3] };
+    }
     return GetImageColor(PART_g_sceneImg, x, y);
 }
 
-/* Promedio 3x3 en vez de un solo texel: menos "ruidoso" para teñir partículas. */
 static Color PART_SampleSceneAvg(float normX, float normY) {
     if (!PART_g_sceneImg.data) return WHITE;
     int cx = (int)(normX * PART_SCENE_GRID_W);
     int cy = (int)(normY * PART_SCENE_GRID_H);
     int rSum = 0, gSum = 0, bSum = 0, n = 0;
+    bool isRGBA8 = (PART_g_sceneImg.format == PIXELFORMAT_UNCOMPRESSED_R8G8B8A8);
+    unsigned char *pixels = (unsigned char *)PART_g_sceneImg.data;
     for (int dy = -1; dy <= 1; dy++) {
         for (int dx = -1; dx <= 1; dx++) {
             int x = cx + dx, y = cy + dy;
             if (x < 0 || x >= PART_SCENE_GRID_W || y < 0 || y >= PART_SCENE_GRID_H) continue;
-            Color c = GetImageColor(PART_g_sceneImg, x, y);
-            rSum += c.r; gSum += c.g; bSum += c.b; n++;
+            if (isRGBA8) {
+                unsigned char *p = pixels + (y * PART_SCENE_GRID_W + x) * 4;
+                rSum += p[0]; gSum += p[1]; bSum += p[2]; n++;
+            } else {
+                Color c = GetImageColor(PART_g_sceneImg, x, y);
+                rSum += c.r; gSum += c.g; bSum += c.b; n++;
+            }
         }
     }
     if (n == 0) return WHITE;
@@ -214,12 +211,13 @@ static float PART_SampleMotion(float normX, float normY) {
     int y = (int)(normY * PART_SCENE_GRID_H);
     if (x < 0) x = 0; if (x >= PART_SCENE_GRID_W) x = PART_SCENE_GRID_W - 1;
     if (y < 0) y = 0; if (y >= PART_SCENE_GRID_H) y = PART_SCENE_GRID_H - 1;
+    if (PART_g_motionImg.format == PIXELFORMAT_UNCOMPRESSED_R8G8B8A8) {
+        unsigned char *p = (unsigned char *)PART_g_motionImg.data + (y * PART_SCENE_GRID_W + x) * 4;
+        return p[0] / 255.0f;
+    }
     return GetImageColor(PART_g_motionImg, x, y).r / 255.0f;
 }
 
-/* Gradiente de luminancia en espacio normalizado (0..1). Apunta hacia donde
- * la escena se vuelve más brillante — se usa para que las partículas "fluyan"
- * siguiendo el contenido del vídeo en vez de moverse a ciegas. */
 static Vector2 PART_SampleGradient(float normX, float normY) {
     if (!PART_g_sceneImg.data) return (Vector2){ 0, 0 };
     int x = (int)(normX * PART_SCENE_GRID_W);
@@ -227,17 +225,26 @@ static Vector2 PART_SampleGradient(float normX, float normY) {
     if (x < 1) x = 1; if (x > PART_SCENE_GRID_W - 2) x = PART_SCENE_GRID_W - 2;
     if (y < 1) y = 1; if (y > PART_SCENE_GRID_H - 2) y = PART_SCENE_GRID_H - 2;
 
-    float lumaL = PART_Luma(GetImageColor(PART_g_sceneImg, x - 1, y));
-    float lumaR = PART_Luma(GetImageColor(PART_g_sceneImg, x + 1, y));
-    float lumaU = PART_Luma(GetImageColor(PART_g_sceneImg, x, y - 1));
-    float lumaD = PART_Luma(GetImageColor(PART_g_sceneImg, x, y + 1));
-
+    float lumaL, lumaR, lumaU, lumaD;
+    if (PART_g_sceneImg.format == PIXELFORMAT_UNCOMPRESSED_R8G8B8A8) {
+        unsigned char *pixels = (unsigned char *)PART_g_sceneImg.data;
+        unsigned char *pL = pixels + (y * PART_SCENE_GRID_W + x - 1) * 4;
+        unsigned char *pR = pixels + (y * PART_SCENE_GRID_W + x + 1) * 4;
+        unsigned char *pU = pixels + ((y - 1) * PART_SCENE_GRID_W + x) * 4;
+        unsigned char *pD = pixels + ((y + 1) * PART_SCENE_GRID_W + x) * 4;
+        lumaL = (pL[0] + pL[1] + pL[2]) / (3.0f * 255.0f);
+        lumaR = (pR[0] + pR[1] + pR[2]) / (3.0f * 255.0f);
+        lumaU = (pU[0] + pU[1] + pU[2]) / (3.0f * 255.0f);
+        lumaD = (pD[0] + pD[1] + pD[2]) / (3.0f * 255.0f);
+    } else {
+        lumaL = PART_Luma(GetImageColor(PART_g_sceneImg, x - 1, y));
+        lumaR = PART_Luma(GetImageColor(PART_g_sceneImg, x + 1, y));
+        lumaU = PART_Luma(GetImageColor(PART_g_sceneImg, x, y - 1));
+        lumaD = PART_Luma(GetImageColor(PART_g_sceneImg, x, y + 1));
+    }
     return (Vector2){ lumaR - lumaL, lumaD - lumaU };
 }
 
-/* Igual que el gradiente de luminancia, pero sobre el campo de movimiento.
- * Esto es lo que hace que las partículas se sientan atraídas hacia lo que
- * se está moviendo en el vídeo, no solo hacia lo que está iluminado. */
 static Vector2 PART_SampleMotionGradient(float normX, float normY) {
     if (!PART_g_motionImg.data) return (Vector2){ 0, 0 };
     int x = (int)(normX * PART_SCENE_GRID_W);
@@ -245,11 +252,19 @@ static Vector2 PART_SampleMotionGradient(float normX, float normY) {
     if (x < 1) x = 1; if (x > PART_SCENE_GRID_W - 2) x = PART_SCENE_GRID_W - 2;
     if (y < 1) y = 1; if (y > PART_SCENE_GRID_H - 2) y = PART_SCENE_GRID_H - 2;
 
-    float mL = GetImageColor(PART_g_motionImg, x - 1, y).r / 255.0f;
-    float mR = GetImageColor(PART_g_motionImg, x + 1, y).r / 255.0f;
-    float mU = GetImageColor(PART_g_motionImg, x, y - 1).r / 255.0f;
-    float mD = GetImageColor(PART_g_motionImg, x, y + 1).r / 255.0f;
-
+    float mL, mR, mU, mD;
+    if (PART_g_motionImg.format == PIXELFORMAT_UNCOMPRESSED_R8G8B8A8) {
+        unsigned char *pixels = (unsigned char *)PART_g_motionImg.data;
+        mL = pixels[(y * PART_SCENE_GRID_W + x - 1) * 4] / 255.0f;
+        mR = pixels[(y * PART_SCENE_GRID_W + x + 1) * 4] / 255.0f;
+        mU = pixels[((y - 1) * PART_SCENE_GRID_W + x) * 4] / 255.0f;
+        mD = pixels[((y + 1) * PART_SCENE_GRID_W + x) * 4] / 255.0f;
+    } else {
+        mL = GetImageColor(PART_g_motionImg, x - 1, y).r / 255.0f;
+        mR = GetImageColor(PART_g_motionImg, x + 1, y).r / 255.0f;
+        mU = GetImageColor(PART_g_motionImg, x, y - 1).r / 255.0f;
+        mD = GetImageColor(PART_g_motionImg, x, y + 1).r / 255.0f;
+    }
     return (Vector2){ mR - mL, mD - mU };
 }
 
@@ -276,11 +291,6 @@ void ParticlesEffect_SetParams(const JsonValue *paramsObj) {
 
     int newMode = PART_ParseMode(JsonAsString(JsonObjectGet(paramsObj, "mode"), NULL), PART_g_params.mode);
     if (newMode != PART_g_params.mode) {
-        /* Las partículas vivas del modo anterior quedaban "atrapadas": Update()
-         * les aplicaba la física del modo nuevo (p.ej. gotas de rain con la
-         * aceleración de fountain) usando posiciones/velocidades pensadas para
-         * el modo viejo, así que el cambio de modo se veía roto o parecía no
-         * aplicarse. Al vaciar el pool, el modo nuevo arranca limpio. */
         PART_g_aliveCount = 0;
         PART_g_spawnAccumulator = 0.0f;
     }
@@ -312,46 +322,66 @@ static void PART_SpawnParticle(int screenW, int screenH) {
 
     if (PART_g_params.mode == PART_MODE_RAIN) {
         float fallSpeed = 200.0f + PART_g_params.gravity * 20.0f;
-        float spawnNormX = (float)rand() / RAND_MAX;
+
+        /* El viento desplaza cada gota "windX*40" por segundo mientras cae.
+         * Si el spawn se queda fijo en [0, screenW], el lado contrario al
+         * viento va quedando vacío a medida que baja (embudo de aire libre).
+         * Para compensarlo, extendemos el rango de aparición hacia ese lado
+         * en proporción a cuánto va a derivar durante toda la caída, así al
+         * llegar abajo la nube de gotas vuelve a cubrir toda la pantalla. */
+        float fallTime = (screenH + 20.0f) / fmaxf(fallSpeed, 1.0f);
+        float drift = PART_g_params.windX * 40.0f * fallTime;
+        float spawnMinX = drift >= 0.0f ? -drift : 0.0f;
+        float spawnMaxX = drift >= 0.0f ? (float)screenW : (float)screenW - drift;
+        float spawnRangeW = spawnMaxX - spawnMinX;
+
+        float spawnFrac = (float)rand() / RAND_MAX;
         if (reactive) {
-            /* La lluvia se concentra sobre las zonas oscuras Y sobre las
-             * zonas donde algo se mueve en la escena, como si cayera sobre
-             * las sombras/siluetas y siguiera la acción del vídeo. */
             for (int tries = 0; tries < 4; tries++) {
                 float candidate = (float)rand() / RAND_MAX;
                 float darkness = 1.0f - PART_SampleLuma(candidate, 0.05f);
                 float motion = PART_SampleMotion(candidate, 0.05f);
                 float bias = darkness * 0.6f + motion * 0.4f;
                 float weight = 1.0f - PART_g_params.reactiveStrength + PART_g_params.reactiveStrength * bias;
-                if (((float)rand() / RAND_MAX) <= weight) { spawnNormX = candidate; break; }
-                spawnNormX = candidate;
+                if (((float)rand() / RAND_MAX) <= weight) { spawnFrac = candidate; break; }
+                spawnFrac = candidate;
             }
         }
-        p->position = (Vector2){ spawnNormX * screenW, -10.0f };
+        p->position = (Vector2){ spawnMinX + spawnFrac * spawnRangeW, -10.0f };
         p->velocity = (Vector2){ PART_g_params.windX * 40.0f, fallSpeed };
         p->lifetime = PART_g_params.lifetime; // límite de seguridad, normalmente muere al salir por abajo
         p->alive = true;
     } else if (PART_g_params.mode == PART_MODE_EMBERS) {
         float riseSpeed = 20.0f + PART_g_params.gravity * 4.0f;
-        float spawnNormX = (float)rand() / RAND_MAX;
+
+        /* Misma idea que en rain: el viento va corriendo la brasa hacia un
+         * lado mientras sube, así que ensanchamos el spawn hacia el lado
+         * contrario para que no se note un hueco arriba. Usamos el tiempo
+         * de vida (o el de subir toda la pantalla, lo que sea menor) para
+         * estimar cuánto va a derivar. */
+        float riseTime = fminf((float)screenH / fmaxf(riseSpeed, 1.0f), PART_g_params.lifetime);
+        float drift = PART_g_params.windX * 20.0f * riseTime;
+        float spawnMinX = drift >= 0.0f ? -drift : 0.0f;
+        float spawnMaxX = drift >= 0.0f ? (float)screenW : (float)screenW - drift;
+        float spawnRangeW = spawnMaxX - spawnMinX;
+
+        float spawnFrac = (float)rand() / RAND_MAX;
         if (reactive) {
-            /* Los embers nacen preferentemente bajo zonas brillantes o con
-             * movimiento, como si emanaran de un punto de luz/acción real. */
             for (int tries = 0; tries < 4; tries++) {
                 float candidate = (float)rand() / RAND_MAX;
                 float brightness = PART_SampleLuma(candidate, 0.9f);
                 float motion = PART_SampleMotion(candidate, 0.9f);
                 float bias = brightness * 0.6f + motion * 0.4f;
                 float weight = 1.0f - PART_g_params.reactiveStrength + PART_g_params.reactiveStrength * bias;
-                if (((float)rand() / RAND_MAX) <= weight) { spawnNormX = candidate; break; }
-                spawnNormX = candidate;
+                if (((float)rand() / RAND_MAX) <= weight) { spawnFrac = candidate; break; }
+                spawnFrac = candidate;
             }
         }
-        p->position = (Vector2){ spawnNormX * screenW, screenH + ((float)rand() / RAND_MAX) * 20.0f };
+        p->position = (Vector2){ spawnMinX + spawnFrac * spawnRangeW, screenH + ((float)rand() / RAND_MAX) * 20.0f };
         p->velocity = (Vector2){ 0.0f, -riseSpeed };
         p->lifetime = PART_g_params.lifetime * (0.7f + ((float)rand() / RAND_MAX) * 0.6f);
         p->alive = true;
-    } else { // FOUNTAIN (original)
+    } else { 
         float spreadRad = PART_g_params.spreadDeg * DEG2RAD;
         float angle = -PI / 2.0f + ((float)rand() / RAND_MAX - 0.5f) * spreadRad;
         float speed = 60.0f + ((float)rand() / RAND_MAX) * 120.0f;
@@ -374,7 +404,6 @@ void ParticlesEffect_Update(float dt) {
         if (PART_g_params.mode == PART_MODE_RAIN) {
             p->position.x += p->velocity.x * dt;
             p->position.y += p->velocity.y * dt;
-            // la muerte real por salir del encuadre se resuelve en Draw()
         } else if (PART_g_params.mode == PART_MODE_EMBERS) {
             p->velocity.x = sinf(p->phase + p->age * 2.0f) * 12.0f + PART_g_params.windX * 20.0f;
             p->position.x += p->velocity.x * dt;
@@ -385,11 +414,6 @@ void ParticlesEffect_Update(float dt) {
             p->position.y += p->velocity.y * dt;
         }
 
-        /* Flow field: el gradiente de luminancia Y el gradiente de movimiento
-         * de la escena empujan a la partícula — esto es lo que hace que de
-         * verdad "sigan" el contenido del vídeo (incluida la acción), no solo
-         * se tiñan de color. El tirón por movimiento pesa más porque es lo
-         * que se percibe como interacción "real" con lo que pasa en pantalla. */
         if (reactive) {
             float nx = p->position.x / (float)PART_g_lastScreenW;
             float ny = p->position.y / (float)PART_g_lastScreenH;
@@ -427,7 +451,6 @@ void ParticlesEffect_Draw(RenderTexture2D scene, int screenW, int screenH) {
         PART_g_spawnAccumulator -= 1.0f;
     }
 
-    // Muerte por salir del encuadre (rain hacia abajo, embers hacia arriba)
     for (int i = 0; i < PART_g_aliveCount; i++) {
         PART_Particle *p = &PART_g_pool[i];
         bool outOfBounds =
@@ -442,7 +465,6 @@ void ParticlesEffect_Draw(RenderTexture2D scene, int screenW, int screenH) {
 
     ClearBackground((Color){ 0, 0, 0, 0 });
 
-    // Dibuja la escena de fondo (textura) ligeramente atenuada
     DrawTextureRec(
         scene.texture,
         (Rectangle){ 0, 0, (float)scene.texture.width, -(float)scene.texture.height },
@@ -452,6 +474,8 @@ void ParticlesEffect_Draw(RenderTexture2D scene, int screenW, int screenH) {
     DrawRectangle(0, 0, screenW, screenH, (Color){ 11, 11, 14, 100 });
 
     float rs = PART_g_params.reactiveStrength;
+    float invScreenW = 1.0f / (float)screenW;
+    float invScreenH = 1.0f / (float)screenH;
 
     for (int i = 0; i < PART_g_aliveCount; i++) {
         PART_Particle *p = &PART_g_pool[i];
@@ -463,11 +487,11 @@ void ParticlesEffect_Draw(RenderTexture2D scene, int screenW, int screenH) {
         if (PART_g_params.mode == PART_MODE_RAIN) {
             Color tint = base;
             if (reactive) {
-                float nx = p->position.x / screenW, ny = p->position.y / screenH;
+                float nx = p->position.x * invScreenW, ny = p->position.y * invScreenH;
                 Color scn = PART_SampleSceneAvg(nx, ny);
                 float luma = PART_Luma(scn);
                 float motion = PART_SampleMotion(nx, ny);
-                float boost = (luma * 60.0f + motion * 140.0f) * rs; // el movimiento resalta mucho más que el brillo estático
+                float boost = (luma * 60.0f + motion * 140.0f) * rs;
                 tint = (Color){
                     (unsigned char)fminf(255, base.r + boost),
                     (unsigned char)fminf(255, base.g + boost),
@@ -483,7 +507,7 @@ void ParticlesEffect_Draw(RenderTexture2D scene, int screenW, int screenH) {
         } else if (PART_g_params.mode == PART_MODE_EMBERS) {
             float glow = 1.0f;
             if (reactive) {
-                float nx = p->position.x / screenW, ny = p->position.y / screenH;
+                float nx = p->position.x * invScreenW, ny = p->position.y * invScreenH;
                 Color scn = PART_SampleSceneAvg(nx, ny);
                 float motion = PART_SampleMotion(nx, ny);
                 glow = 1.0f + (PART_Luma(scn) * 1.0f + motion * 1.4f) * rs;
@@ -495,12 +519,12 @@ void ParticlesEffect_Draw(RenderTexture2D scene, int screenW, int screenH) {
             DrawCircleV(p->position, radius * 1.8f, (Color){ c.r, c.g, c.b, (unsigned char)(c.a * 0.35f) }); // halo
             DrawCircleV(p->position, radius, c);
 
-        } else { // FOUNTAIN
+        } else {
             float radius = PART_g_params.size * (1.0f - PART_g_params.sizeFalloff * (1.0f - lifeRatio));
             if (radius < 0.2f) radius = 0.2f;
             Color c = base;
             if (reactive) {
-                float nx = p->position.x / screenW, ny = p->position.y / screenH;
+                float nx = p->position.x * invScreenW, ny = p->position.y * invScreenH;
                 Color scn = PART_SampleSceneAvg(nx, ny);
                 float motion = PART_SampleMotion(nx, ny);
                 c = (Color){

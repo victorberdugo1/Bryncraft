@@ -150,6 +150,21 @@ export const CRT_EFFECT: EffectDefinition = {
     { key: "noise", label: "Noise", type: "float", default: 0.05, min: 0, max: 1, step: 0.01, group: "Signal" },
     { key: "chromaticAberration", label: "Chromatic Aberration", type: "float", default: 0.4, min: 0, max: 5, step: 0.05, group: "Signal" },
     { key: "flicker", label: "Flicker", type: "float", default: 0.1, min: 0, max: 1, step: 0.01, group: "Signal" },
+    { key: "ghosting", label: "Ghosting", type: "float", default: 0, min: 0, max: 1, step: 0.01, group: "Signal" },
+    { key: "verticalRoll", label: "Vertical Roll", type: "float", default: 0, min: -1, max: 1, step: 0.01, group: "Geometry" },
+
+    // --- VHS glitch ---
+    { key: "trackingGlitch", label: "Tracking Glitch", type: "float", default: 0, min: 0, max: 1, step: 0.01, group: "VHS Glitch" },
+    { key: "waveDistortion", label: "Wave Distortion", type: "float", default: 0, min: 0, max: 5, step: 0.05, group: "VHS Glitch" },
+    { key: "waveSpeed", label: "Wave Speed", type: "float", default: 1.5, min: 0, max: 10, step: 0.1, group: "VHS Glitch" },
+    { key: "dropoutLines", label: "Dropout Lines", type: "float", default: 0, min: 0, max: 1, step: 0.01, group: "VHS Glitch" },
+    { key: "jitter", label: "Jitter", type: "float", default: 0, min: 0, max: 5, step: 0.05, group: "VHS Glitch" },
+
+    // --- VHS overlay ---
+    { key: "vhsOverlay", label: "VHS Overlay", type: "bool", default: false, group: "VHS Overlay" },
+    { key: "vhsIcon", label: "Icon", type: "select", default: "none", options: ["none", "play", "pause", "rew", "ff", "stop", "rec"], group: "VHS Overlay" },
+    { key: "vhsTimestamp", label: "Timestamp", type: "string", default: "", group: "VHS Overlay" },
+    { key: "vhsLabel", label: "Label", type: "string", default: "SP", group: "VHS Overlay" },
   ],
 };
 

@@ -1,26 +1,158 @@
-# ASCII Renderer
+# ASCII Renderer (single-header, raylib)
 
-Convierte la escena 3D (renderizada a `RenderTexture2D`) en una grilla de
-caracteres ASCII, dibujada carácter a carácter con `DrawTextEx`. Incluye un
-modo "Matrix" (lluvia de caracteres cayendo, con estela y color de cabeza
-independiente) además del modo normal en escala de grises con rampa de
-caracteres configurable.
+Turns whatever you've rendered into a `RenderTexture2D` into a grid of
+ASCII characters. Two modes included:
 
-## Archivos de esta carpeta
+- **normal**: grayscale with a configurable character ramp (default
+  ` .:-=+*#%@`).
+- **matrix**: Matrix-style falling character rain, with a trail and an
+  independent head color.
 
-| Archivo | Qué es |
-|---|---|
-| `ascii_effect.h` | Single-header: `AsciiEffect_SetParams/Update/Draw/Unload`, todo el efecto |
-| `main000.c` | Demo standalone mínima — solo este efecto, sin el resto de Bryncraft |
-| `NotoSansJP-Kana.ttf` | **Extra.** Fuente usada en modo Matrix (`matrixChars` con kana). Sin ella el modo Matrix cae a la fuente por defecto de raylib |
-| `raylib.h` / `libraylib.a` | **Extra.** Copia de las de `native/effects/` (un nivel arriba) — para poder compilar `main000.c` sin ir a buscarlas a otra carpeta |
+## Quick start (copy & paste)
 
-## Contrato JSON (`AsciiEffect_SetParams`)
+1. Copy `ascii_effect.h` into your project.
+2. (Optional, only needed for kana in Matrix mode) also copy
+   `NotoSansJP-Kana.ttf` into the same folder you run your game from.
+   Without it, Matrix mode just falls back to raylib's default font.
+3. In your code:
+
+```c
+#include "raylib.h"
+#include "ascii_effect.h"
+
+int main(void) {
+    InitWindow(800, 600, "my game");
+    SetTargetFPS(60);
+
+    RenderTexture2D scene = LoadRenderTexture(800, 600);
+
+    while (!WindowShouldClose()) {
+        float dt = GetFrameTime();
+
+        // 1. Render your game as usual, but into "scene"
+        BeginTextureMode(scene);
+            ClearBackground(DARKGRAY);
+            // ... your regular drawing goes here ...
+        EndTextureMode();
+
+        // 2. Apply the effect
+        AsciiEffect_Update(dt);
+        BeginDrawing();
+            ClearBackground(BLACK);
+            AsciiEffect_Draw(scene, 800, 600);
+        EndDrawing();
+    }
+
+    AsciiEffect_Unload();
+    UnloadRenderTexture(scene);
+    CloseWindow();
+    return 0;
+}
+```
+
+That's it. No JSON or extra libraries needed for the basics.
+
+## Changing parameters (colors, size, Matrix mode...)
+
+Everything is controlled by editing the global `ASCII_g_params` variable
+directly (declared inside `ascii_effect.h`). For example, before your
+loop:
+
+```c
+ASCII_g_params.fontSize = 8;
+ASCII_g_params.foreground = (Color){ 0, 255, 120, 255 };
+ASCII_g_params.mode = ASCII_MODE_MATRIX;      // or ASCII_MODE_NORMAL
+ASCII_g_params.matrixSpeed = 20.0f;
+```
+
+You can see every available field at the top of the `.h` file, in the
+`ASCII_Params` struct.
+
+## Building
+
+```bash
+# Windows (MinGW)
+gcc main.c -o game.exe -I. -L. -lraylib -lgdi32 -lwinmm
+
+# Linux
+gcc main.c -o game -I. -L. -lraylib -lm -lpthread -ldl -lrt -lX11
+```
+
+(`raylib.h` / `libraylib.a` need to be reachable through those
+`-I`/`-L` flags; adjust the paths to wherever you have raylib
+installed)
+
+## Included demo
+
+`main000.c` is a minimal standalone example (a red circle with the
+effect applied). Build it the same way as above.
+
+## Feeding the effect with video or a camera
+
+The effect doesn't know or care where the image comes from: it just
+needs a `RenderTexture2D` with something drawn into it. That means you
+can use any image source as the "scene", not just raylib drawing calls:
+
+- **Video**: if you decode a video frame by frame (e.g. with an
+  external video library), just draw each decoded frame inside
+  `BeginTextureMode(scene)/EndTextureMode()` before calling
+  `AsciiEffect_Draw`, exactly like you would with any other drawing.
+- **Camera**: raylib has no built-in webcam capture, so you'll need a
+  separate library to read frames from the camera (OpenCV, for
+  example). Once you have each frame as an `Image`/`Texture2D`, load it
+  into `scene` with `UpdateTexture`, or draw it with `DrawTexturePro`
+  inside `BeginTextureMode(scene)`.
+
+Bottom line: the pattern is always the same, only where `scene`'s
+content comes from changes.
+
+## Exporting the current frame (TXT, PNG, or JPG)
+
+### As text (.txt)
+
+The header already includes a function that dumps the current
+character grid to a string:
+
+```c
+const char *txt = js_get_ascii_grid_text();
+FILE *f = fopen("frame.txt", "wb");
+if (f) { fputs(txt, f); fclose(f); }
+```
+
+Works the same whether you build native or for the web; it doesn't
+depend on Emscripten.
+
+### As an image (.png or .jpg)
+
+`AsciiEffect_Draw` draws directly onto whatever's currently active. To
+save it as an image, draw it into your own `RenderTexture2D` and export
+that with raylib's own functions:
+
+```c
+RenderTexture2D frame = LoadRenderTexture(800, 600);
+
+BeginTextureMode(frame);
+    ClearBackground(BLANK);
+    AsciiEffect_Draw(scene, 800, 600);
+EndTextureMode();
+
+Image img = LoadImageFromTexture(frame.texture);
+ImageFlipVertical(img);          // OpenGL textures come out upside down
+ExportImage(img, "frame.png");   // or "frame.jpg"
+UnloadImage(img);
+
+UnloadRenderTexture(frame);
+```
+
+## Optional JSON usage (only if you embed this in an Emscripten/JS
+runtime, e.g. inside a website)
+
+If you build with `__EMSCRIPTEN__` defined and add your own minimal
+JSON parser (not included in this folder), `AsciiEffect_SetParams`
+becomes available, accepting this contract:
 
 ```json
-{ "effect": "ascii", "params": {
-  "characters": " .:-=+*#%@",
-  "fontSize": 12,
+{ "characters": " .:-=+*#%@", "fontSize": 12,
   "brightness": 1.0, "contrast": 1.0, "gamma": 1.0,
   "foreground": "#RRGGBB", "background": "#RRGGBBAA",
   "invert": false,
@@ -30,30 +162,9 @@ caracteres configurable.
   "matrixHeadColor": "#RRGGBB",
   "matrixReactive": false, "matrixReactiveStrength": 1.0,
   "matrixImageStrength": 1.0
-} }
+}
 ```
 
-## Compilar la demo standalone
-
-`raylib.h` / `libraylib.a` están un nivel arriba, en `native/effects/`
-(compartidos por las 4 demos), de ahí el `-I..`/`-L..`:
-
-```bash
-# Windows (MinGW)
-gcc main000.c -o ascii_demo.exe -I.. -L.. -lraylib -lgdi32 -lwinmm
-
-# Linux
-gcc main000.c -o ascii_demo -I.. -L.. -lraylib -lm -lpthread -ldl -lrt -lX11
-```
-
-Para que el modo Matrix use la fuente kana, `NotoSansJP-Kana.ttf` debe estar
-en el mismo directorio desde el que se ejecuta el binario (ya está, junto a
-`main000.c`, en esta carpeta).
-
-## Build completo (WASM, dentro de Bryncraft)
-
-Este header se compila como parte del build de `native/` (`make` desde
-`native/`, ver `native/README.md`); no hace falta tocar nada aquí para eso.
-La fuente Matrix se sirve vía `js_set_matrix_font_data()` desde
-`public/assets/fonts/NotoSansJP-Kana.ttf` (copia idéntica a la de esta
-carpeta, cargada por React, no por Emscripten `--preload-file`).
+If you build natively without Emscripten, ignore this section
+entirely: everything is configured by touching `ASCII_g_params` as
+shown above.

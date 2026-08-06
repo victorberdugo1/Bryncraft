@@ -1,26 +1,151 @@
-# Particle System
+# Particle System (single-header, raylib)
 
-Simulación de partículas con pool fijo (sin allocs en el hot path). Tres
-modos — `fountain` (brota de un punto), `rain` (cae desde arriba, con
-viento) y `embers` (sube con vaivén) — todos con un modo "reactive"
-opcional: cada frame se hace un downsample de la escena a una textura
-pequeña, se lee a CPU, y con eso se modula color/brillo, se desvía el
-movimiento por gradiente de luminancia (flow field) y se sesga dónde nacen
-las partículas. También compara contra el downsample del frame anterior
-para reaccionar a movimiento real en el vídeo, no solo a zonas claras/oscuras
-estáticas.
+A particle system with a fixed pool (no allocs in the hot path) that
+draws on top of whatever you've rendered into a `RenderTexture2D`.
+Three modes included:
 
-## Archivos de esta carpeta
+- **fountain**: spawns from a fixed point, with angular spread.
+- **rain**: falls from the top of the screen, with lateral wind.
+- **embers**: rises with a side-to-side sway, like embers/sparks.
 
-| Archivo | Qué es |
-|---|---|
-| `particles_effect.h` | Single-header: `ParticlesEffect_SetParams/Update/Draw/Unload`, todo el efecto |
-| `main001.c` | Demo standalone mínima — solo este efecto, sin el resto de Bryncraft |
+All three have an optional **reactive** mode: every frame the effect
+downsamples your scene, reads it back on the CPU, and uses that to
+modulate particle color/brightness, deflect movement via a luminance
+gradient (flow field), and bias where particles spawn — it also
+compares against the previous frame's downsample to react to actual
+motion in the video, not just static bright/dark areas.
 
-Este efecto no tiene archivos extra (no usa shader propio ni assets
-externos) — el tab "Extra" de la app lo indica.
+## Quick start (copy & paste)
 
-## Contrato JSON (`ParticlesEffect_SetParams`)
+1. Copy `particles_effect.h` into your project.
+2. In your code:
+
+```c
+#include "raylib.h"
+#include "particles_effect.h"
+
+int main(void) {
+    InitWindow(800, 600, "my game");
+    SetTargetFPS(60);
+
+    RenderTexture2D scene = LoadRenderTexture(800, 600);
+
+    while (!WindowShouldClose()) {
+        float dt = GetFrameTime();
+
+        // 1. Render your game as usual, but into "scene"
+        BeginTextureMode(scene);
+            ClearBackground(DARKGRAY);
+            // ... your regular drawing goes here ...
+        EndTextureMode();
+
+        // 2. Apply the effect
+        ParticlesEffect_Update(dt);
+        BeginDrawing();
+            ClearBackground(BLACK);
+            ParticlesEffect_Draw(scene, 800, 600);
+        EndDrawing();
+    }
+
+    UnloadRenderTexture(scene);
+    CloseWindow();
+    return 0;
+}
+```
+
+That's it. No JSON or extra libraries needed for the basics.
+
+`ParticlesEffect_Draw` already draws the background scene (with a
+slight darkening overlay) and the particles on top of it — you don't
+need to draw `scene` yourself separately, just pass it in as a
+parameter.
+
+## Changing parameters (mode, color, count...)
+
+Everything is controlled by editing the global `PART_g_params`
+variable directly (declared inside `particles_effect.h`). For example,
+before your loop:
+
+```c
+PART_g_params.mode = PART_MODE_RAIN;          // PART_MODE_FOUNTAIN / PART_MODE_RAIN / PART_MODE_EMBERS
+PART_g_params.count = 2000;                   // max alive particles (cap: PARTICLES_MAX = 20000)
+PART_g_params.spawnRate = 120.0f;             // new particles per second
+PART_g_params.gravity = 9.8f;
+PART_g_params.lifetime = 2.5f;
+PART_g_params.size = 4.0f;
+PART_g_params.sizeFalloff = 0.6f;             // 0 = constant size, 1 = shrinks to nothing by death
+PART_g_params.color = (Color){ 68, 212, 255, 255 };
+PART_g_params.spreadDeg = 45.0f;              // fountain only: spread angle
+PART_g_params.spawnX = 0.5f;                  // fountain only: normalized origin (0..1)
+PART_g_params.spawnY = 0.8f;
+PART_g_params.windX = 0.0f;                   // rain and embers
+PART_g_params.reactive = 1;                   // 0/1
+PART_g_params.reactiveStrength = 0.6f;
+PART_g_params.flowStrength = 0.8f;            // how much the flow field deflects particles
+```
+
+You can see every available field at the top of the `.h` file, in the
+`PART_ParticleParams` struct. The values above are the defaults
+(`rain` mode, reactive enabled).
+
+## Modes in detail
+
+| Mode | Behavior | Relevant params |
+|---|---|---|
+| `PART_MODE_FOUNTAIN` | Spawns at `(spawnX, spawnY)` and shoots upward at a random angle within `spreadDeg`, affected by `gravity`. | `spawnX`, `spawnY`, `spreadDeg`, `gravity` |
+| `PART_MODE_RAIN` | Falls straight down from the top of the screen, with `windX` pushing it sideways. Drawn as a line (drop), not a circle. | `windX`, `gravity` doesn't apply (fall velocity is already fixed) |
+| `PART_MODE_EMBERS` | Rises from the bottom with a sinusoidal side-to-side sway. `gravity` here controls rise speed, not fall speed. | `windX`, `gravity` |
+
+If `reactive` is `1`, in `fountain`/`rain` particles spawn more where
+the scene is dark or moving, and in `embers` where it's bright or
+moving; in all three modes color and/or brightness get modulated by
+what's underneath.
+
+## Building
+
+```bash
+# Windows (MinGW)
+gcc main.c -o game.exe -I. -L. -lraylib -lgdi32 -lwinmm
+
+# Linux
+gcc main.c -o game -I. -L. -lraylib -lm -lpthread -ldl -lrt -lX11
+```
+
+(`raylib.h` / `libraylib.a` need to be reachable through those
+`-I`/`-L` flags; adjust the paths to wherever you have raylib
+installed)
+
+## Included demo
+
+`main001.c` is a minimal standalone example (a red circle with the
+particle effect on top). Build it the same way as above.
+
+## Feeding the effect with video or a camera
+
+Same as with any other effect in this family: `ParticlesEffect_Draw`
+doesn't care where `scene`'s content came from, it just needs a
+`RenderTexture2D` with something drawn into it.
+
+- **Video**: if you decode a video frame by frame (e.g. with an
+  external video library), just draw each decoded frame inside
+  `BeginTextureMode(scene)/EndTextureMode()` before calling
+  `ParticlesEffect_Draw`, exactly like you would with any other
+  drawing.
+- **Camera**: raylib has no built-in webcam capture, so you'll need a
+  separate library to read frames from the camera (OpenCV, for
+  example). Once you have each frame as an `Image`/`Texture2D`, load it
+  into `scene` with `UpdateTexture`, or draw it with `DrawTexturePro`
+  inside `BeginTextureMode(scene)`.
+
+Bottom line: the pattern is always the same, only where `scene`'s
+content comes from changes.
+
+## Optional JSON usage (only if you embed this in an Emscripten/JS
+runtime, e.g. inside a website)
+
+If you build with `__EMSCRIPTEN__` defined and add your own minimal
+JSON parser (not included in this folder), `ParticlesEffect_SetParams`
+becomes available, accepting this contract:
 
 ```json
 { "effect": "particles", "params": {
@@ -34,16 +159,6 @@ externos) — el tab "Extra" de la app lo indica.
 } }
 ```
 
-## Compilar la demo standalone
-
-`raylib.h` / `libraylib.a` están un nivel arriba, en `native/effects/`
-(compartidos por las 4 demos):
-
-```bash
-gcc -o particles_demo.exe main001.c -I.. -L.. -lraylib -lgdi32 -lwinmm   # Windows
-```
-
-## Build completo (WASM, dentro de Bryncraft)
-
-Se compila como parte del build de `native/` (`make` desde `native/`, ver
-`native/README.md`); no hace falta tocar nada aquí para eso.
+If you build natively without Emscripten, ignore this section
+entirely: everything is configured by touching `PART_g_params` as
+shown above.

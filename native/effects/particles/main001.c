@@ -1,8 +1,9 @@
-// main001.c — minimal standalone example: Particle System
-// Self-contained folder: particles_effect.h + main001.c. raylib.h /
-// libraylib.a are shared one level up, in native/effects/.
+// main001.c — minimal standalone example: Particle System 
 //
-// gcc -o particles_demo.exe main001.c -I.. -L.. -lraylib -lgdi32 -lwinmm
+// gcc main001.c -o particles_demo.exe -I. -L. -lraylib -lgdi32 -lwinmm   (Windows)
+// gcc main001.c -o particles_demo -I. -L. -lraylib -lm -lpthread -ldl -lrt -lX11  (Linux)
+//
+// Part of Bryncraft (https://bryncraft.online/) — created by Victor Berdugo
 
 #include "raylib.h"
 #include "particles_effect.h"
@@ -21,10 +22,9 @@ int main(void)
     {
         float dt = GetFrameTime();
 
-        // Anything can be drawn into 'scene' — the particles react to it
-        // when PART_g_params.reactive is on (see the header above).
         BeginTextureMode(scene);
             ClearBackground(DARKGRAY);
+            /* PLACEHOLDER: draw your scene content here */
             DrawCircle(screenW / 2, screenH / 2, 120, RED);
         EndTextureMode();
 
