@@ -3,9 +3,11 @@ import { ViewportCanvas } from "@/components/canvas/ViewportCanvas";
 import { useAppStore, type ZoomMode } from "@/store/useAppStore";
 import { Button } from "@/components/ui/button";
 import { ExportPanel } from "@/components/layout/ExportPanel";
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Download, Upload, X, Camera, CameraOff, SwitchCamera } from "lucide-react";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { cn } from "@/lib/utils";
+import { DESKTOP_MEMORY_BUDGET_BYTES, MOBILE_MEMORY_BUDGET_BYTES, getVideoMetadata, needsQualityChoice } from "@/lib/videoFrameExtractor";
 
 const ZOOM_LEVELS: { id: ZoomMode; label: string }[] = [
   { id: "fit", label: "Fit" },
@@ -54,15 +56,50 @@ export function CenterViewport() {
   const spawnDrag = useRef(false);
   const [isPanning, setIsPanning] = useState(false);
   const [isDraggingSpawn, setIsDraggingSpawn] = useState(false);
+  // Video whose import is pending desktop-quality confirmation (see
+  // handleFileChange). null when no confirmation dialog is showing.
+  const [pendingVideoFile, setPendingVideoFile] = useState<File | null>(null);
 
   const spawnX = Number(spawnParams.spawnX ?? 0.5);
   const spawnY = Number(spawnParams.spawnY ?? 0.8);
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = "";
-    if (file) void loadVideo(file);
+    if (!file) return;
+    if (!isDesktop) {
+      void loadVideo(file, MOBILE_MEMORY_BUDGET_BYTES);
+      return;
+    }
+    // Desktop can afford a much higher in-memory frame budget than mobile,
+    // but only worth asking about when it would actually change the
+    // result — if the video already fits at full quality within the
+    // recommended budget, skip the popup and import it directly.
+    try {
+      const metadata = await getVideoMetadata(file);
+      if (needsQualityChoice(metadata, MOBILE_MEMORY_BUDGET_BYTES)) {
+        setPendingVideoFile(file);
+      } else {
+        void loadVideo(file, MOBILE_MEMORY_BUDGET_BYTES);
+      }
+    } catch {
+      // No se pudo leer la metadata de antemano (formato raro, etc.) — que
+      // el propio loadVideo se encargue de fallar con un mensaje claro.
+      void loadVideo(file, MOBILE_MEMORY_BUDGET_BYTES);
+    }
   };
+
+  const confirmHighQualityImport = () => {
+    if (pendingVideoFile) void loadVideo(pendingVideoFile, DESKTOP_MEMORY_BUDGET_BYTES);
+    setPendingVideoFile(null);
+  };
+
+  const confirmRecommendedImport = () => {
+    if (pendingVideoFile) void loadVideo(pendingVideoFile, MOBILE_MEMORY_BUDGET_BYTES);
+    setPendingVideoFile(null);
+  };
+
+  const cancelHighQualityImport = () => setPendingVideoFile(null);
 
   // Drag-to-pan: mousedown anywhere on the stage (except the spawn handle,
   // which stops propagation on its own pointerdown) starts tracking; the
@@ -342,6 +379,28 @@ export function CenterViewport() {
           </div>
         )}
       </div>
+
+      <Dialog open={pendingVideoFile !== null} onOpenChange={(open) => !open && cancelHighQualityImport()}>
+        <DialogContent>
+          <DialogTitle className="text-sm font-semibold">¿Cómo importar el video?</DialogTitle>
+          <DialogDescription className="text-[11px] text-muted-foreground">
+            Estás en desktop, así que podemos usar un límite de memoria más alto que en móvil y
+            mantener mejor la resolución y los fps originales del video. Eso sí, puede hacer que
+            la importación tarde un poco más, sobre todo con videos largos o pesados.
+          </DialogDescription>
+          <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button size="sm" variant="ghost" onClick={cancelHighQualityImport}>
+              Cancelar
+            </Button>
+            <Button size="sm" variant="outline" onClick={confirmRecommendedImport}>
+              Calidad recomendada
+            </Button>
+            <Button size="sm" variant="accent" onClick={confirmHighQualityImport}>
+              Alta calidad
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

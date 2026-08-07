@@ -99,7 +99,7 @@ interface AppState {
   toggleRightPanel: () => void;
   toggleBottomPanel: () => void;
 
-  loadVideo: (file: File) => Promise<void>;
+  loadVideo: (file: File, memoryBudgetBytes?: number) => Promise<void>;
   clearVideo: () => void;
   dismissVideoNotice: () => void;
 
@@ -226,7 +226,7 @@ export const useAppStore = create<AppState>((set) => ({
   toggleRightPanel: () => set((s) => ({ rightPanelOpen: !s.rightPanelOpen })),
   toggleBottomPanel: () => set((s) => ({ bottomPanelOpen: !s.bottomPanelOpen })),
 
-  loadVideo: async (file: File) => {
+  loadVideo: async (file: File, memoryBudgetBytes?: number) => {
     // Loading a video file and a live camera are mutually exclusive
     // sources — see setCameraActive for the other direction.
     set((s) => ({
@@ -234,9 +234,13 @@ export const useAppStore = create<AppState>((set) => ({
       video: { frames: null, loading: true, progress: 0, error: null, notice: null },
     }));
     try {
-      const result = await extractVideoFrames(file, (done, total) => {
-        set((s) => ({ video: { ...s.video, progress: total > 0 ? done / total : 0 } }));
-      });
+      const result = await extractVideoFrames(
+        file,
+        (done, total) => {
+          set((s) => ({ video: { ...s.video, progress: total > 0 ? done / total : 0 } }));
+        },
+        memoryBudgetBytes,
+      );
       set({
         video: { frames: result.frames, loading: false, progress: 1, error: null, notice: result.notice },
         timeline: {

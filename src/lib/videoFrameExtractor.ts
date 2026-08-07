@@ -2,7 +2,14 @@ const DEFAULT_FPS = 30;
 const MIN_SAMPLE_FPS = 8;
 
 const MAX_FILE_SIZE_BYTES = 2 * 1024 * 1024 * 1024; // 2GB
-const MEMORY_BUDGET_BYTES = 400 * 1024 * 1024; // 400MB
+
+// Budget for decoded frames held in memory as ImageBitmaps. Mobile browsers
+// (especially iOS Safari) tend to crash tabs well before desktop limits, so
+// they get a conservative budget. Desktop can comfortably take much more —
+// callers pick the budget explicitly (see DESKTOP_MEMORY_BUDGET_BYTES /
+// MOBILE_MEMORY_BUDGET_BYTES) rather than us guessing from the UA string.
+export const MOBILE_MEMORY_BUDGET_BYTES = 900 * 1024 * 1024; // 900MB (400MB + 500MB)
+export const DESKTOP_MEMORY_BUDGET_BYTES = 1536 * 1024 * 1024; // 1.5GB
 
 export interface VideoFrameExtractionResult {
   frames: ImageBitmap[];
@@ -25,9 +32,10 @@ function computeExtractionPlan(
   duration: number,
   sourceWidth: number,
   sourceHeight: number,
+  memoryBudgetBytes: number,
 ): { fps: number; width: number; height: number; notice: string | null } {
   const bytesPerFrameFullRes = sourceWidth * sourceHeight * 4;
-  const fpsThatFitsFullRes = MEMORY_BUDGET_BYTES / (duration * bytesPerFrameFullRes);
+  const fpsThatFitsFullRes = memoryBudgetBytes / (duration * bytesPerFrameFullRes);
 
   if (fpsThatFitsFullRes >= DEFAULT_FPS) {
     return { fps: DEFAULT_FPS, width: sourceWidth, height: sourceHeight, notice: null };
@@ -42,7 +50,7 @@ function computeExtractionPlan(
     };
   }
 
-  const scale = Math.sqrt(MEMORY_BUDGET_BYTES / (duration * MIN_SAMPLE_FPS * bytesPerFrameFullRes));
+  const scale = Math.sqrt(memoryBudgetBytes / (duration * MIN_SAMPLE_FPS * bytesPerFrameFullRes));
   const clampedScale = Math.min(1, scale);
   const width = Math.max(2, roundToEven(sourceWidth * clampedScale));
   const height = Math.max(2, roundToEven(sourceHeight * clampedScale));
@@ -52,6 +60,66 @@ function computeExtractionPlan(
     height,
     notice: `Video imported at ${width}×${height} @ ${MIN_SAMPLE_FPS}fps (original: ${sourceWidth}×${sourceHeight} @ ${DEFAULT_FPS}fps) — resolution and fps were reduced because the video's length/weight didn't fit in memory.`,
   };
+}
+
+export interface VideoMetadata {
+  duration: number;
+  width: number;
+  height: number;
+}
+
+// Cheap peek at a video file's duration/dimensions without decoding any
+// frames — used to decide *before* extraction whether the quality-vs-speed
+// choice even matters for this file (see needsQualityChoice below).
+export async function getVideoMetadata(file: File): Promise<VideoMetadata> {
+  const url = URL.createObjectURL(file);
+  const video = document.createElement("video");
+  video.muted = true;
+  video.playsInline = true;
+  video.preload = "metadata";
+  video.src = url;
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const onLoaded = () => {
+        video.removeEventListener("loadedmetadata", onLoaded);
+        video.removeEventListener("error", onError);
+        resolve();
+      };
+      const onError = () => {
+        video.removeEventListener("loadedmetadata", onLoaded);
+        video.removeEventListener("error", onError);
+        reject(new Error("No se pudo leer el archivo de video"));
+      };
+      video.addEventListener("loadedmetadata", onLoaded);
+      video.addEventListener("error", onError);
+    });
+
+    const duration = video.duration;
+    const width = video.videoWidth;
+    const height = video.videoHeight;
+    if (!isFinite(duration) || duration <= 0 || !width || !height) {
+      throw new Error("El video no tiene metadata válida");
+    }
+    return { duration, width, height };
+  } finally {
+    video.removeAttribute("src");
+    video.load();
+    URL.revokeObjectURL(url);
+  }
+}
+
+// True if importing at `memoryBudgetBytes` would already need to drop fps
+// and/or resolution below the source video's own values — i.e. whether a
+// bigger budget (like the desktop one) would actually change the outcome.
+// When this is false, "calidad recomendada" and "alta calidad" produce the
+// exact same result, so there's nothing to ask the user about.
+export function needsQualityChoice(
+  metadata: VideoMetadata,
+  memoryBudgetBytes: number = MOBILE_MEMORY_BUDGET_BYTES,
+): boolean {
+  const bytesPerFrameFullRes = metadata.width * metadata.height * 4;
+  const fpsThatFitsFullRes = memoryBudgetBytes / (metadata.duration * bytesPerFrameFullRes);
+  return fpsThatFitsFullRes < DEFAULT_FPS;
 }
 
 function seekToFrame(video: HTMLVideoElement, t: number): Promise<void> {
@@ -99,6 +167,7 @@ function seekToFrame(video: HTMLVideoElement, t: number): Promise<void> {
 export async function extractVideoFrames(
   file: File,
   onProgress?: (done: number, total: number) => void,
+  memoryBudgetBytes: number = MOBILE_MEMORY_BUDGET_BYTES,
 ): Promise<VideoFrameExtractionResult> {
   if (file.size > MAX_FILE_SIZE_BYTES) {
     throw new Error(
@@ -147,7 +216,12 @@ export async function extractVideoFrames(
       throw new Error("El video no tiene dimensiones válidas");
     }
 
-    const { fps, width, height, notice } = computeExtractionPlan(duration, sourceWidth, sourceHeight);
+    const { fps, width, height, notice } = computeExtractionPlan(
+      duration,
+      sourceWidth,
+      sourceHeight,
+      memoryBudgetBytes,
+    );
 
     // Sin un play/pause real antes de hacer seek, algunos navegadores nunca
     // entregan frames decodificados y drawImage captura cuadros negros.
