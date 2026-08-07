@@ -38,6 +38,7 @@ import asciiFontUrl from "../../native/effects/ascii/NotoSansJP-Kana.ttf?url";
 // inflar el bundle JS con sus ~130KB como string — se sirve como asset
 // estático igual que el .ttf.
 import raylibHeaderUrl from "../../native/effects/raylib.h?url";
+import haarcascadeUrl from "../../native/assets/cv/haarcascade_frontalface_default.xml?url";
 import libraylibWinUrl from "../../native/effects/win/libraylib.a?url";
 import libraylibLnxUrl from "../../native/effects/lnx/libraylib.a?url";
 
@@ -358,6 +359,12 @@ export function getExtras(effect: EffectId): ExtraAsset[] {
           label: "Build script (Windows / MinGW)",
           kind: "text",
           content: opencvBuildBatRaw,
+        },
+        {
+          filename: "haarcascade_frontalface_default.xml",
+          label: "Modelo Haar Cascade (detección de rostros)",
+          kind: "binary-url",
+          url: haarcascadeUrl,
         },
       ];
     case "particles":

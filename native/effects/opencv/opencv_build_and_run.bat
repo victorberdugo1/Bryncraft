@@ -16,14 +16,23 @@ move opencv-mingw-src\opencv-480\install opencv-mingw >nul
 rmdir /s /q opencv-mingw-src
 
 :SETVARS
-rem raylib.h / libraylib.a live one level up, in native\effects\ (shared by
-rem every effect's standalone demo).
-set OPENCV_PATH=opencv-mingw
-set PATH=%CD%\..\;%CD%\!OPENCV_PATH!\x64\mingw\bin;%PATH%
-set INC=-I.. -I"!OPENCV_PATH!\include"
-set LIBS=-L.. -L"!OPENCV_PATH!\x64\mingw\lib" -lraylib -lm -lgdi32 -lwinmm -lopencv_objdetect480 -lopencv_video480 -lopencv_videoio480 -lopencv_imgproc480 -lopencv_core480
+rem raylib.h / libraylib.a normally live one level up, in native\effects\
+rem (shared by every effect's standalone demo) -- but this script also
+rem checks the same folder it's in, in case raylib.h/libraylib.a were
+rem copied next to it instead (e.g. running this standalone outside the
+rem repo layout, like straight from Downloads).
+if exist "raylib.h" (set RAYLIB_INC=.) else (set RAYLIB_INC=..)
+if exist "libraylib.a" (set RAYLIB_LIB=.) else (set RAYLIB_LIB=..)
 
-gcc -c main003.c -o main003.o -I.. || (pause & exit /b 1)
+set OPENCV_PATH=opencv-mingw
+set PATH=%CD%\!RAYLIB_LIB!;%CD%\!OPENCV_PATH!\x64\mingw\bin;%PATH%
+set INC=-I"!RAYLIB_INC!" -I"!OPENCV_PATH!\include"
+set LIBS=-L"!RAYLIB_LIB!" -L"!OPENCV_PATH!\x64\mingw\lib" -lraylib -lm -lgdi32 -lwinmm -lopencv_objdetect480 -lopencv_video480 -lopencv_videoio480 -lopencv_imgproc480 -lopencv_core480
+
+if not exist "!RAYLIB_INC!\raylib.h" (echo raylib.h not found in "." or ".." & pause & exit /b 1)
+if not exist "!RAYLIB_LIB!\libraylib.a" (echo libraylib.a not found in "." or ".." & pause & exit /b 1)
+
+gcc -c main003.c -o main003.o -I"!RAYLIB_INC!" || (pause & exit /b 1)
 g++ -DOPENCV_EFFECT_IMPLEMENTATION -x c++ -c opencv_effect.h -o opencv_effect.o %INC% -std=c++20 || (pause & exit /b 1)
 g++ main003.o opencv_effect.o -o opencv_demo.exe %LIBS% || (pause & exit /b 1)
 del main003.o opencv_effect.o 2>nul

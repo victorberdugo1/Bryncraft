@@ -1,29 +1,10 @@
 /*
- * opencv_effect.h -- bridge between main.c (plain C) and the OpenCV-powered
- * effect implementation, kept in the SAME file (single-header style, same
- * idiom as stb_image.h): the top half is the plain-C declarations main.c
- * parses; everything below OPENCV_EFFECT_IMPLEMENTATION is real OpenCV C++
- * code that main.c never sees.
+ * opencv_effect.h — single-header OpenCV vision effect for raylib
+ * Plain-C declarations above OPENCV_EFFECT_IMPLEMENTATION, C++ below
  *
- * This header intentionally follows the SAME three-entry-point contract
- * described in effect_common.h (SetParams / Update / Draw) so main.c's
- * dispatch switch treats EFFECT_OPENCV exactly like ascii/particles/crt.
- *
- * NOTHING above the OPENCV_EFFECT_IMPLEMENTATION guard includes <opencv2/...>
- * or uses C++ types -- that part is parsed by main.c (a .c file) exactly
- * like every other effects/*.h, so it must stay plain C.
- *
- * There is no companion .cpp for the implementation below. It's compiled
- * by pointing a C++ compiler straight at THIS file (see the OPENCV_OBJ rule
- * in the Makefile):
- *     em++ -DOPENCV_EFFECT_IMPLEMENTATION -x c++ -c effects/opencv/opencv_effect.h -o opencv_effect.o
- * `-x c++` forces the C++ frontend regardless of the .h extension, and the
- * -D flag unlocks the block below instead of just the plain-C declarations
- * main.c sees. That command line is the ONLY reason a C++ compiler is
- * invoked at all -- OpenCV has no C API, so *some* translation unit has to
- * be C++ -- but there's nothing left to maintain outside this header: every
- * line of the real effect lives here now.
+ * Part of Bryncraft (https://bryncraft.online/) — created by Victor Berdugo
  */
+
 #ifndef OPENCV_EFFECT_H
 #define OPENCV_EFFECT_H
 
@@ -37,58 +18,23 @@ extern "C" {
 #endif
 
 #ifdef __EMSCRIPTEN__
-// paramsObj carries at least {"mode": "edges"|"contours"|"optical_flow"|
-// "bg_subtract"|"face_detect", ...mode-specific fields}. See
-// OpencvEffect_SetParams() further down in this same file (implementation
-// section) for the full field list — kept in sync with
-// src/types/effects.ts's OPENCV_EFFECT param schema.
+
 void OpencvEffect_SetParams(const JsonValue *paramsObj);
 #endif
 
-// Runs the currently-selected OpenCV pipeline against whatever is in
-// `scene` (the same RenderTexture2D every other effect reads from — the
-// decoded video/camera frame, or DrawBaseScene()'s procedural placeholder
-// when no source is loaded) and uploads the processed pixels to an
-// internal texture for Draw() to blit. Cheap effects (edges/contours) run
-// every call; face detection throttles itself internally (see
-// OPENCV_FACE_DETECT_EVERY_N_FRAMES) since Haar cascades are comparatively
-// expensive per frame.
 void OpencvEffect_Update(float dt);
 void OpencvEffect_Draw(RenderTexture2D scene, int screenW, int screenH);
 
-// Releases the OpenCV-side Mats/state and the raylib textures this effect
-// owns. Safe to call even if OpencvEffect_Update() was never called (e.g.
-// the user never switched to this effect during the session).
 void OpencvEffect_Unload(void);
 
 #ifndef __EMSCRIPTEN__
-// ----------------------------------------------------------------------
-// Native camera capture (desktop builds only, e.g. main003.c). The web
-// build gets its frames from the browser (getUserMedia) via JavaScript ->
-// js_set_video_frame() in main.c instead, so none of this compiles under
-// Emscripten -- there's no cv::VideoCapture in the trimmed wasm OpenCV
-// build (core/imgproc/video/objdetect only, no videoio) and no camera to
-// open from inside a wasm sandbox anyway.
-// ----------------------------------------------------------------------
 
-// Opens system camera `deviceIndex` (0 = default camera). Returns true on
-// success; false if no camera could be opened. Safe to call again after a
-// failed attempt or after OcvCamera_Close().
 bool OcvCamera_Open(int deviceIndex);
 
-// True once OcvCamera_Open() has succeeded and the camera hasn't been
-// closed since.
 bool OcvCamera_IsOpen(void);
 
-// Grabs the next camera frame and draws it into `target` (a RenderTexture2D
-// -- the same `scene` OpencvEffect_Draw reads from), stretched to fill it.
-// Safe to call every frame even if the camera isn't open or a grab fails:
-// `target` is simply left with whatever it already had in that case, so
-// callers don't need to check OcvCamera_IsOpen() first.
 void OcvCamera_CaptureInto(RenderTexture2D target);
 
-// Releases the camera and the internal texture used to stage its frames.
-// Safe to call even if OcvCamera_Open() was never called or already failed.
 void OcvCamera_Close(void);
 #endif
 
@@ -96,31 +42,8 @@ void OcvCamera_Close(void);
 }
 #endif
 
-#endif // OPENCV_EFFECT_H
+#endif
 
-/* ============================================================================
- * IMPLEMENTATION -- only compiled when OPENCV_EFFECT_IMPLEMENTATION is
- * defined on the compiler command line (see the OPENCV_OBJ rule in the
- * Makefile, which compiles this exact file with `-x c++ -DOPENCV_EFFECT_IMPLEMENTATION`).
- * main.c never defines that macro, so it never sees anything past this
- * point -- not the OpenCV includes, not OcvParams, none of it.
- *
- * Pipeline shared by every mode:
- *   1. Downsample `scene` (the RenderTexture2D every effect reads from --
- *      decoded video/camera frame, or DrawBaseScene()'s procedural
- *      placeholder) into g_readTarget at g_params.processScale resolution.
- *      Working at less than full resolution is what keeps Canny/contours/
- *      optical flow/Haar cascades inside frame budget on a single wasm
- *      thread -- this is a deliberate quality/perf tradeoff exposed to the
- *      user as the "processScale" param, not an oversight.
- *   2. LoadImageFromTexture() it back to CPU (same technique
- *      ascii_effect.h/particles_effect.h already use), wrap as a cv::Mat,
- *      flip it right-side-up once (RenderTexture2D's GPU texture is
- *      stored upside-down -- see the long comment in OpencvEffect_Draw).
- *   3. Run whichever OpenCV pipeline is selected.
- *   4. Upload the RGBA result to a plain Texture2D (NOT a RenderTexture --
- *      so no upside-down storage this time) and blit it to the backbuffer.
- * ========================================================================== */
 #if defined(OPENCV_EFFECT_IMPLEMENTATION) && !defined(OPENCV_EFFECT_IMPLEMENTATION_INCLUDED)
 #define OPENCV_EFFECT_IMPLEMENTATION_INCLUDED
 
@@ -134,10 +57,6 @@ void OcvCamera_Close(void);
 #include <cmath>
 #include <algorithm>
 
-// ============================================================================
-// PARAMS
-// ============================================================================
-
 enum OcvMode {
     OCV_MODE_EDGES = 0,
     OCV_MODE_CONTOURS,
@@ -146,45 +65,30 @@ enum OcvMode {
     OCV_MODE_FACE,
 };
 
-// Plain aggregate — SIN inicializadores por-campo dentro de la declaración
-// (eso era C++-only y es justo lo que impedía a generateRaylibCode.ts
-// sustituir los valores actuales del Inspector: no había un único bloque
-// inicializador equivalente al de ASCII_g_params / CRT_g_params /
-// PART_g_params que localizar por regex). Los defaults ahora viven en el
-// bloque de abajo (ver g_params más adelante), con el mismo formato que
-// esos otros tres — así este archivo se comporta igual que sus .h
-// hermanos: main.c nunca ve esta diferencia (sigue incluyendo solo
-// effects/opencv/opencv_effect.h), pero el panel "Code" ya refleja los valores
-// reales del Inspector.
 struct OcvParams {
     OcvMode mode;
-    float processScale;   // internal working resolution, relative to the canvas
-    bool mirror;          // horizontal flip — handy with a front-facing camera
+    float processScale;
+    bool mirror;
 
-    // edges
     float cannyLow, cannyHigh;
     int blur;
     bool edgeOnSource;
     Color edgeColor;
 
-    // contours
     float contourMinArea;
     int contourThickness;
     bool contourFill;
     Color contourColor;
 
-    // optical flow
     float flowStrength;
     bool flowArrows;
     int flowArrowStep;
 
-    // background subtraction
     int bgHistory;
     float bgVarThreshold;
     bool bgShadows;
     bool bgMaskOnly;
 
-    // face detection
     float faceScaleFactor;
     int faceMinNeighbors;
     float faceMinSizeFraction;
@@ -225,10 +129,6 @@ static OcvParams g_params = {
 };
 static OcvMode g_lastMode = OCV_MODE_EDGES;
 
-// ============================================================================
-// INTERNAL STATE
-// ============================================================================
-
 static RenderTexture2D g_readTarget;
 static bool g_readTargetReady = false;
 static int g_readW = 0, g_readH = 0;
@@ -237,9 +137,9 @@ static Texture2D g_outputTexture;
 static bool g_outputTextureReady = false;
 static int g_outW = 0, g_outH = 0;
 
-static cv::Mat g_prevGray;                          // optical flow
-static cv::Mat g_lastFlowVis;                        // reused between throttled recomputes
-static cv::Ptr<cv::BackgroundSubtractorMOG2> g_bgSub; // background subtraction
+static cv::Mat g_prevGray;
+static cv::Mat g_lastFlowVis;
+static cv::Ptr<cv::BackgroundSubtractorMOG2> g_bgSub;
 static int g_bgHistoryBuilt = -1;
 static float g_bgVarThresholdBuilt = -1.0f;
 static bool g_bgShadowsBuilt = false;
@@ -249,15 +149,10 @@ static bool g_faceCascadeAttempted = false;
 static bool g_faceCascadeOk = false;
 static std::vector<cv::Rect> g_lastFaces;
 
-// Cascade data passed from JavaScript via js_set_cascade_data()
 static uint8_t *g_cascadeBuffer = NULL;
 static size_t g_cascadeBufferSize = 0;
 
 static int g_frameCounter = 0;
-
-// ============================================================================
-// PARSING HELPERS (same conventions as ascii_effect.h / particles_effect.h)
-// ============================================================================
 
 static Color OCV_HexToColor(const char *hex, Color fallback) {
     if (!hex || hex[0] != '#') return fallback;
@@ -318,11 +213,6 @@ void OpencvEffect_SetParams(const JsonValue *paramsObj) {
     g_params.faceBoxColor = OCV_HexToColor(JsonAsString(JsonObjectGet(paramsObj, "faceBoxColor"), NULL), g_params.faceBoxColor);
     g_params.faceShowCount = JsonAsBool(JsonObjectGet(paramsObj, "faceShowCount"), g_params.faceShowCount);
 
-    // Switching modes invalidates state that only makes sense for the
-    // previous pipeline (a stale optical-flow reference frame, a
-    // background model built from a completely different scene, cached
-    // face boxes from before). Dropping it avoids visible glitches on
-    // mode switch and matches what a fresh start of each pipeline expects.
     if (g_params.mode != g_lastMode) {
         g_prevGray.release();
         g_lastFlowVis.release();
@@ -332,18 +222,13 @@ void OpencvEffect_SetParams(const JsonValue *paramsObj) {
         g_lastMode = g_params.mode;
     }
 }
-#endif // __EMSCRIPTEN__
+#endif
 
 void OpencvEffect_Update(float dt) {
     (void)dt;
 }
 
-// ============================================================================
-// PIPELINES — each takes the working-resolution RGBA frame and returns an
-// RGBA cv::Mat of the same size to upload/display.
-// ============================================================================
-
-static cv::Mat RunEdges(const cv::Mat &frame) {
+static cv::Mat OCV_CannyEdges(const cv::Mat &frame) {
     cv::Mat gray;
     cv::cvtColor(frame, gray, cv::COLOR_RGBA2GRAY);
     if (g_params.blur > 0) {
@@ -352,27 +237,20 @@ static cv::Mat RunEdges(const cv::Mat &frame) {
     }
     cv::Mat edges;
     cv::Canny(gray, edges, g_params.cannyLow, g_params.cannyHigh);
+    return edges;
+}
 
-    cv::Mat out;
-    if (g_params.edgeOnSource) {
-        out = frame.clone();
-    } else {
-        out = cv::Mat::zeros(frame.size(), CV_8UC4);
-    }
+static cv::Mat RunEdges(const cv::Mat &frame) {
+    cv::Mat edges = OCV_CannyEdges(frame);
+
+    cv::Mat out = g_params.edgeOnSource ? frame.clone() : cv::Mat::zeros(frame.size(), CV_8UC4);
     cv::Scalar col(g_params.edgeColor.r, g_params.edgeColor.g, g_params.edgeColor.b, 255);
     out.setTo(col, edges);
     return out;
 }
 
 static cv::Mat RunContours(const cv::Mat &frame) {
-    cv::Mat gray;
-    cv::cvtColor(frame, gray, cv::COLOR_RGBA2GRAY);
-    if (g_params.blur > 0) {
-        int k = g_params.blur * 2 + 1;
-        cv::GaussianBlur(gray, gray, cv::Size(k, k), 0);
-    }
-    cv::Mat edges;
-    cv::Canny(gray, edges, g_params.cannyLow, g_params.cannyHigh);
+    cv::Mat edges = OCV_CannyEdges(frame);
 
     std::vector<std::vector<cv::Point>> contours;
     cv::findContours(edges, contours, cv::RETR_LIST, cv::CHAIN_APPROX_SIMPLE);
@@ -397,9 +275,6 @@ static cv::Mat RunOpticalFlow(const cv::Mat &frame) {
         return g_lastFlowVis.clone();
     }
 
-    // Farneback dense flow is the most expensive step in this file — only
-    // recompute every other frame and reuse the last visualization the
-    // frames in between, same idea as the face-detect throttle below.
     if (g_frameCounter % 2 == 0) {
         cv::Mat flow;
         cv::calcOpticalFlowFarneback(g_prevGray, gray, flow, 0.5, 3, 15, 3, 5, 1.2, 0);
@@ -423,7 +298,7 @@ static cv::Mat RunOpticalFlow(const cv::Mat &frame) {
             }
             g_lastFlowVis = out;
         } else {
-            cv::Mat hue = angle * (180.0 / 360.0); // 0..360deg -> 0..180 (OpenCV hue range)
+            cv::Mat hue = angle * (180.0 / 360.0);
             hue.convertTo(hue, CV_8UC1);
             cv::Mat value;
             cv::normalize(magnitude, value, 0, 255 * std::min(std::max(g_params.flowStrength, 0.1f), 3.0f), cv::NORM_MINMAX);
@@ -467,10 +342,6 @@ static cv::Mat RunBgSubtract(const cv::Mat &frame) {
         return out;
     }
 
-    // Dim in BGR (3-channel) first, then convert both to RGBA — converting
-    // the already-4-channel frame directly would scale the alpha channel
-    // down along with color, leaving dimmed background pixels unintentionally
-    // translucent once composited.
     cv::Mat dimBgr;
     bgr.convertTo(dimBgr, -1, 0.28, 0);
     cv::Mat out, dimRgba;
@@ -483,17 +354,15 @@ static cv::Mat RunBgSubtract(const cv::Mat &frame) {
 static cv::Mat RunFaceDetect(const cv::Mat &frame) {
     if (!g_faceCascadeAttempted) {
         g_faceCascadeAttempted = true;
-        // Cascade data must be passed from JavaScript via js_set_cascade_data()
-        // This avoids Emscripten's fragile --preload-file filesystem mounting.
-        // JavaScript fetches the XML and passes its buffer directly to WASM.
+
         try {
             if (g_cascadeBuffer && g_cascadeBufferSize > 0) {
-                // Create a temporary in-memory XML file by writing to /tmp
+
                 FILE *tmpFile = fopen("/tmp/cascade.xml", "wb");
                 if (tmpFile) {
                     fwrite(g_cascadeBuffer, 1, g_cascadeBufferSize, tmpFile);
                     fclose(tmpFile);
-                    
+
                     g_faceCascadeOk = g_faceCascade.load("/tmp/cascade.xml");
                     if (!g_faceCascadeOk) {
                         fprintf(stderr, "[face_detect] Failed to load cascade from buffer (returned false)\n");
@@ -511,12 +380,8 @@ static cv::Mat RunFaceDetect(const cv::Mat &frame) {
     }
 
     cv::Mat out = frame.clone();
-    if (!g_faceCascadeOk) return out; // cascade missing/failed — passthrough, never crash
+    if (!g_faceCascadeOk) return out;
 
-    // Haar cascades are the most expensive pipeline here; detect on a
-    // throttle and keep drawing the last known boxes in between so the
-    // overlay still tracks roughly-in-place faces smoothly instead of
-    // updating in visible steps.
     if (g_frameCounter % 4 == 0) {
         cv::Mat gray;
         cv::cvtColor(frame, gray, cv::COLOR_RGBA2GRAY);
@@ -541,10 +406,6 @@ static cv::Mat RunFaceDetect(const cv::Mat &frame) {
     return out;
 }
 
-// ============================================================================
-// DRAW
-// ============================================================================
-
 void OpencvEffect_Draw(RenderTexture2D scene, int screenW, int screenH) {
     float scale = g_params.processScale;
     if (scale < 0.1f) scale = 0.1f;
@@ -562,11 +423,6 @@ void OpencvEffect_Draw(RenderTexture2D scene, int screenW, int screenH) {
         g_readH = workH;
     }
 
-    // Downsample the scene into our working-resolution RenderTexture. The
-    // negative source height is the same "un-flip while copying between
-    // render textures" trick ascii_effect.h/particles_effect.h use —
-    // RenderTexture2D's backing GL texture is stored upside-down relative
-    // to normal screen orientation.
     BeginTextureMode(g_readTarget);
     ClearBackground(BLACK);
     DrawTexturePro(scene.texture,
@@ -577,15 +433,10 @@ void OpencvEffect_Draw(RenderTexture2D scene, int screenW, int screenH) {
 
     Image img = LoadImageFromTexture(g_readTarget.texture);
     cv::Mat rgba(workH, workW, CV_8UC4, img.data);
-    cv::Mat frame = rgba.clone();
-    UnloadImage(img);
 
-    // LoadImageFromTexture() reads the GL framebuffer bottom-up (same
-    // reason ascii_effect.h indexes rows as `rows - 1 - y`). Flip once here
-    // so every pipeline below works in normal top-down image orientation —
-    // this matters for face-box coordinates and flow-arrow direction
-    // looking right to a viewer, not just for symmetric filters like Canny.
-    cv::flip(frame, frame, 0);
+    cv::Mat frame;
+    cv::flip(rgba, frame, 0);
+    UnloadImage(img);
     if (g_params.mirror) cv::flip(frame, frame, 1);
 
     g_frameCounter++;
@@ -601,14 +452,7 @@ void OpencvEffect_Draw(RenderTexture2D scene, int screenW, int screenH) {
             default:                out = frame; break;
         }
     } catch (const cv::Exception &e) {
-        // OpenCV throws cv::Exception (via CV_Assert/CV_Error) on plenty of
-        // recoverable conditions — a malformed/missing cascade file, an
-        // unexpected Mat shape at some internal assertion, etc. Emscripten
-        // aborts the ENTIRE wasm runtime on an uncaught C++ exception
-        // (needs -s DISABLE_EXCEPTION_CATCHING=0 at link time just to reach
-        // this catch at all — see the Makefile), so letting any of these
-        // propagate would take down the whole app over one bad frame in one
-        // effect. Fall back to a plain passthrough instead.
+
         fprintf(stderr, "[opencv_effect] cv::Exception in mode %d: %s\n", (int)g_params.mode, e.what());
         out = frame;
     } catch (const std::exception &e) {
@@ -617,9 +461,6 @@ void OpencvEffect_Draw(RenderTexture2D scene, int screenW, int screenH) {
     }
     if (!out.isContinuous()) out = out.clone();
 
-    // `out` is already top-down (we never flipped back), which is exactly
-    // what a plain Texture2D (as opposed to a RenderTexture2D) expects —
-    // no flip needed for this upload or the final DrawTexturePro below.
     if (!g_outputTextureReady || g_outW != workW || g_outH != workH) {
         if (g_outputTextureReady) UnloadTexture(g_outputTexture);
         Image outImg = {
@@ -652,30 +493,18 @@ void OpencvEffect_Unload(void) {
     g_lastFaces.clear();
 }
 
-// ============================================================================
-// CASCADE DATA RECEIVER (called from JavaScript)
-// ============================================================================
-// JavaScript fetches the cascade XML and passes it here as a byte buffer.
-// This avoids Emscripten's --preload-file fragility.
-//
-// Usage from JS (via wasmBridge.ts):
-//   fetch('/path/to/haarcascade_frontalface_default.xml')
-//     .then(r => r.arrayBuffer())
-//     .then(buf => Module.ccall('js_set_cascade_data', null, 
-//             ['number', 'number'], [buf.byteLength, new Uint8Array(buf)]))
-//
 extern "C" {
     void js_set_cascade_data(size_t bufSize, uint8_t *buf) {
         if (g_cascadeBuffer) free(g_cascadeBuffer);
         g_cascadeBuffer = NULL;
         g_cascadeBufferSize = 0;
-        
+
         if (bufSize > 0 && buf) {
             g_cascadeBuffer = (uint8_t *)malloc(bufSize);
             if (g_cascadeBuffer) {
                 memcpy(g_cascadeBuffer, buf, bufSize);
                 g_cascadeBufferSize = bufSize;
-                // Reset attempted flag so next frame retries loading
+
                 g_faceCascadeAttempted = false;
                 g_faceCascadeOk = false;
             } else {
@@ -685,12 +514,6 @@ extern "C" {
     }
 }
 
-// ============================================================================
-// NATIVE CAMERA CAPTURE (desktop builds only -- guarded out entirely under
-// Emscripten, same as the declarations above, for the same reason: no
-// cv::VideoCapture in the trimmed wasm OpenCV build and no camera to open
-// from inside a wasm sandbox anyway).
-// ============================================================================
 #ifndef __EMSCRIPTEN__
 #include <opencv2/videoio.hpp>
 
@@ -718,7 +541,7 @@ void OcvCamera_CaptureInto(RenderTexture2D target) {
     if (!g_cameraOpen) return;
 
     cv::Mat bgr;
-    if (!g_camera.read(bgr) || bgr.empty()) return; // dropped frame — leave target as-is
+    if (!g_camera.read(bgr) || bgr.empty()) return;
 
     cv::Mat rgba;
     cv::cvtColor(bgr, rgba, cv::COLOR_BGR2RGBA);
@@ -741,11 +564,6 @@ void OcvCamera_CaptureInto(RenderTexture2D target) {
         UpdateTexture(g_cameraTexture, rgba.data);
     }
 
-    // Same "external frame -> scene RenderTexture" wiring js_set_video_frame()
-    // + DrawBaseScene() use for the web build's decoded video/camera frame —
-    // stretch the camera texture to fill `target` so callers (main003.c) can
-    // hand the result straight to OpencvEffect_Draw() as `scene`, exactly
-    // like the procedural placeholder it replaces.
     BeginTextureMode(target);
         ClearBackground(BLACK);
         DrawTexturePro(g_cameraTexture,
@@ -767,6 +585,7 @@ void OcvCamera_Close(void) {
     g_cameraTexW = 0;
     g_cameraTexH = 0;
 }
-#endif // !__EMSCRIPTEN__
+#endif
 
-#endif // OPENCV_EFFECT_IMPLEMENTATION
+#endif
+
