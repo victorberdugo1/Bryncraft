@@ -18,9 +18,12 @@ RAYLIB_CONFIG   := $(RAYLIB_SRC)/config.h
 # static libs to link directly into effects/opencv/opencv_effect.h's implementation
 # section (compiled straight from the .h — see OPENCV_OBJ below, no separate
 # .cpp). Trimmed to only the
-# modules the effect actually uses (core/imgproc/video/objdetect) via
-# BUILD_LIST, with codecs/GUI/hardware backends we never touch switched
-# off — that's most of what keeps this from being a multi-hour build.
+# modules the effects actually use (core/imgproc/video/objdetect for
+# opencv_effect.h's Canny/contours/optical-flow/bg-subtract/Haar-cascade
+# face_detect; dnn added for touchdesigner_effect.h's cv::dnn::Net palm
+# detector, replacing the old HSV-skin-color heuristic) via BUILD_LIST, with
+# codecs/GUI/hardware backends we never touch switched off — that's most
+# of what keeps this from being a multi-hour build.
 OPENCV_VERSION     := 4.9.0
 OPENCV_SRC_DIR     := opencv
 OPENCV_BUILD_DIR   := opencv_build
@@ -28,7 +31,7 @@ OPENCV_INSTALL_DIR := $(OPENCV_BUILD_DIR)/install
 OPENCV_INCLUDE     := $(OPENCV_INSTALL_DIR)/include/opencv4
 OPENCV_LIB_DIR     := $(OPENCV_INSTALL_DIR)/lib
 OPENCV_3RDPARTY_DIR:= $(OPENCV_INSTALL_DIR)/lib/opencv4/3rdparty
-OPENCV_MODULES     := core,imgproc,video,objdetect
+OPENCV_MODULES     := core,imgproc,video,objdetect,dnn
 # Marker file used as the "already built" check, same idea as
 # RAYLIB_LIB_SRC above for raylib.
 OPENCV_MARKER      := $(OPENCV_LIB_DIR)/libopencv_core.a
@@ -62,8 +65,15 @@ SRC_C     := main.c json_mini.c
 # API -- it just means there's no separate .cpp file left to maintain.
 OPENCV_HEADER := effects/opencv/opencv_effect.h
 OPENCV_OBJ    := opencv_effect.o
-SRC       := $(SRC_C) $(OPENCV_HEADER)
-OBJ       := $(SRC_C:.c=.o) $(OPENCV_OBJ)
+# effects/touchdesigner/touchdesigner_effect.h es DOS cosas del mismo archivo:
+# el efecto en sí (C puro, se incluye directo en main.c, ver SRC_C) y el
+# detector de palma (C++/cv::dnn, sección TOUCHDESIGNER_EFFECT_IMPLEMENTATION
+# más abajo en el mismo .h) que se compila aparte, igual patrón que
+# OPENCV_OBJ arriba.
+TOUCHDESIGNER_HEADER := effects/touchdesigner/touchdesigner_effect.h
+TOUCHDESIGNER_OBJ    := touchdesigner_effect.o
+SRC       := $(SRC_C) $(OPENCV_HEADER) $(TOUCHDESIGNER_HEADER)
+OBJ       := $(SRC_C:.c=.o) $(OPENCV_OBJ) $(TOUCHDESIGNER_OBJ)
 ASSETS_DIR := assets
 SHELL_FILE := shell.html
 VIDEO_EXPORT := video_export_emscripten.js
@@ -78,7 +88,7 @@ EFFECT_HEADERS := $(wildcard effects/*.h effects/*/*.h)
 ASSET_FILES := $(shell find $(ASSETS_DIR) -type f 2>/dev/null)
 
 # Functions/runtime methods React's wasmBridge.ts calls via Module.ccall(...)
-EXPORTED_FUNCS    := ['_js_set_effect_json','_js_get_stats_json','_js_start_export','_js_stop_export','_js_set_video_frame','_js_clear_video_frame','_js_set_canvas_size','_js_lock_frame_capture','_js_unlock_frame_capture','_js_get_presented_frame_count','_js_set_cascade_data','_js_set_matrix_font_data','_js_get_ascii_grid_text','_malloc','_free','_main']
+EXPORTED_FUNCS    := ['_js_set_effect_json','_js_get_stats_json','_js_start_export','_js_stop_export','_js_set_video_frame','_js_clear_video_frame','_js_set_canvas_size','_js_lock_frame_capture','_js_unlock_frame_capture','_js_get_presented_frame_count','_js_set_cascade_data','_js_set_palm_model_data','_js_set_matrix_font_data','_js_get_ascii_grid_text','_malloc','_free','_main']
 EXPORTED_RUNTIME  := ['ccall','cwrap','HEAPU8','FS']
 
 DEST ?= ../public/wasm
@@ -89,7 +99,6 @@ CXXFLAGS := $(CFLAGS) -std=c++20
 LDFLAGS := ./$(RAYLIB_LIB) \
            -s USE_GLFW=3 \
            -s GL_ENABLE_GET_PROC_ADDRESS=1 \
-           -s ASYNCIFY \
            -s INITIAL_MEMORY=134217728 \
            -s ALLOW_MEMORY_GROWTH=1 \
            -s FORCE_FILESYSTEM=1 \
@@ -141,7 +150,7 @@ help:
 	@echo ""
 	@echo "  make emsdk        - Install emscripten"
 	@echo "  make raylib       - Build raylib for PLATFORM_WEB"
-	@echo "  make opencv       - Build OpenCV (core/imgproc/video/objdetect) for wasm"
+	@echo "  make opencv       - Build OpenCV (core/imgproc/video/objdetect/dnn) for wasm"
 	@echo "  make ffmpeg       - Fetch precompiled FFmpeg.wasm"
 	@echo ""
 	@echo "  make clean        - Remove build outputs"
@@ -207,7 +216,8 @@ opencv: emsdk
 		-DBUILD_JAVA=OFF -DBUILD_opencv_python2=OFF -DBUILD_opencv_python3=OFF \
 		-DWITH_1394=OFF -DWITH_FFMPEG=OFF -DWITH_GSTREAMER=OFF -DWITH_GTK=OFF -DWITH_QT=OFF -DWITH_OPENGL=OFF \
 		-DWITH_PNG=OFF -DWITH_JPEG=OFF -DWITH_TIFF=OFF -DWITH_WEBP=OFF -DWITH_OPENEXR=OFF -DWITH_V4L=OFF \
-		-DWITH_ITT=OFF -DWITH_IPP=OFF -DWITH_TBB=OFF -DWITH_OPENCL=OFF -DWITH_PROTOBUF=OFF \
+		-DWITH_ITT=OFF -DWITH_IPP=OFF -DWITH_TBB=OFF -DWITH_OPENCL=OFF \
+		-DWITH_PROTOBUF=ON -DBUILD_PROTOBUF=ON -DPROTOBUF_UPDATE_FILES=OFF \
 		-DCV_ENABLE_INTRINSICS=OFF -DCPU_BASELINE="" -DCPU_DISPATCH="" \
 		-DENABLE_PRECOMPILED_HEADERS=OFF)
 	@echo "[opencv] Building (this can take a long time on first run)..."
@@ -274,6 +284,10 @@ check: raylib ffmpeg opencv
 $(OPENCV_OBJ): $(OPENCV_HEADER) json_mini.h effects/effect_common.h $(EFFECT_HEADERS)
 	@echo "[build] Compiling $(OPENCV_HEADER) directly (C++, implementation section)..."
 	$(call WITH_EMSDK,$(EMXX) $(CXXFLAGS) -DOPENCV_EFFECT_IMPLEMENTATION -x c++ -c $(OPENCV_HEADER) -o $(OPENCV_OBJ))
+
+$(TOUCHDESIGNER_OBJ): $(TOUCHDESIGNER_HEADER) json_mini.h effects/effect_common.h $(EFFECT_HEADERS)
+	@echo "[build] Compiling $(TOUCHDESIGNER_HEADER) directly (C++, implementation section)..."
+	$(call WITH_EMSDK,$(EMXX) $(CXXFLAGS) -DTOUCHDESIGNER_EFFECT_IMPLEMENTATION -DTOUCHDESIGNER_EFFECT_OBJ_BUILD -x c++ -c $(TOUCHDESIGNER_HEADER) -o $(TOUCHDESIGNER_OBJ))
 
 # Order-only prerequisite: guarantees `check` (raylib/ffmpeg/opencv) has
 # fully run before any $(OBJ) is built, even under `make -jN`, where

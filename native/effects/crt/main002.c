@@ -11,34 +11,34 @@
 
 int main(void)
 {
-    const int screenW = 800;
-    const int screenH = 600;
+	const int screenW = 800;
+	const int screenH = 600;
 
-    InitWindow(screenW, screenH, "CRT — minimal example");
-    SetTargetFPS(60);
+	InitWindow(screenW, screenH, "CRT — minimal example");
+	SetTargetFPS(60);
 
-    RenderTexture2D scene = LoadRenderTexture(screenW, screenH);
-    CrtEffect_Init(); // compiles the embedded shader — call once, after InitWindow
+	RenderTexture2D scene = LoadRenderTexture(screenW, screenH);
+	CrtEffect_Init();
 
-    while (!WindowShouldClose())
-    {
-        float dt = GetFrameTime();
+	while (!WindowShouldClose())
+	{
+		float dt = GetFrameTime();
 
-        BeginTextureMode(scene);
-            ClearBackground(DARKGRAY);
-            DrawCircle(screenW / 2, screenH / 2, 120, RED);
-        EndTextureMode();
+		BeginTextureMode(scene);
+			ClearBackground(DARKGRAY);
+			DrawCircle(screenW / 2, screenH / 2, 120, RED);
+		EndTextureMode();
 
-        CrtEffect_Update(dt);
+		CrtEffect_Update(dt);
 
-        BeginDrawing();
-            ClearBackground(BLACK);
-            CrtEffect_Draw(scene, screenW, screenH);
-        EndDrawing();
-    }
+		BeginDrawing();
+			ClearBackground(BLACK);
+			CrtEffect_Draw(scene, screenW, screenH);
+		EndDrawing();
+	}
 
-    CrtEffect_Unload();
-    UnloadRenderTexture(scene);
-    CloseWindow();
-    return 0;
+	CrtEffect_Unload();
+	UnloadRenderTexture(scene);
+	CloseWindow();
+	return 0;
 }

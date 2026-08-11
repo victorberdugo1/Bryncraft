@@ -66,16 +66,14 @@ real renderer. If absent, the app runs on the Canvas2D preview in
 `src/lib/mockRenderer.ts`, which mirrors the same three effects and the same
 parameter contract so the UI is fully interactive either way.
 
-## Adding a fourth effect
+## Adding a new effect
 
-1. Add its `EffectId` + `ParamSchema[]` in `src/types/effects.ts` (drives the
-   Inspector, Code panel, and mock renderer automatically).
-2. Add the enum value in `effects/effect_common.h`.
-3. Create `effects/<name>/<name>_effect.h` implementing `SetParams` / `Update` / `Draw`,
-   plus a minimal `effects/<name>/main<NNN>.c` standalone demo and an
-   `effects/<name>/README.md` — same layout as the existing folders.
-4. Dispatch it in `main.c`'s `js_set_effect_json` switch and `UpdateDrawFrame`,
-   including it as `effects/<name>/<name>_effect.h`.
-5. `EFFECT_HEADERS` in the `Makefile` already globs `effects/*/*.h`, so no
-   Makefile change is needed unless the effect needs its own build step
-   (like `opencv/` does).
+Full walkthrough (verified end-to-end): [`docs/adding-a-new-effect.md`](../docs/adding-a-new-effect.md)
+at the repo root. Short version: one new folder under `effects/<name>/`
+(header + optional demo + optional README), one new `src/effects/<name>.ts`,
+and 3 one-line registrations (`EFFECT_LIST` in `effects/effect_common.h`,
+one `#include` in `main.c`, one entry in `EFFECT_MODULES` in
+`src/effects/index.ts`). Don't duplicate the steps here — keep this file
+as the low-level map of what lives in `native/`, and let the doc above be
+the single source of truth for the walkthrough, so the two don't drift
+out of sync again.

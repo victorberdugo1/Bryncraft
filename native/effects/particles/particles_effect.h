@@ -21,11 +21,13 @@
 extern "C" {
 #endif
 
+void ParticlesEffect_Init(void);
 #ifdef __EMSCRIPTEN__
 void ParticlesEffect_SetParams(const JsonValue *paramsObj);
 #endif
 void ParticlesEffect_Update(float dt);
 void ParticlesEffect_Draw(RenderTexture2D scene, int screenW, int screenH);
+void ParticlesEffect_Unload(void);
 
 #ifdef __cplusplus
 }
@@ -283,6 +285,12 @@ static int PART_ParseMode(const char *s, int fallback) {
     if (strcmp(s, "fountain") == 0) return PART_MODE_FOUNTAIN;
     return fallback;
 }
+
+// El pool de partículas es un array estático (sin heap), y PART_g_sceneSmall
+// se crea perezosamente en el primer frame reactivo — no hay nada que
+// pre-crear. Existe solo para completar el contrato Init/SetParams/Update/
+// Draw/Unload uniforme entre los 4 efectos.
+void ParticlesEffect_Init(void) { }
 
 void ParticlesEffect_SetParams(const JsonValue *paramsObj) {
     if (!paramsObj) return;
@@ -542,6 +550,22 @@ void ParticlesEffect_Draw(RenderTexture2D scene, int screenW, int screenH) {
             DrawCircleV(p->position, radius, c);
         }
     }
+}
+
+// Libera el RenderTexture2D y las 3 Image auxiliares del muestreo reactivo
+// (PART_g_sceneSmall / PART_g_sceneImg / PART_g_scenePrevImg /
+// PART_g_motionImg) que hasta ahora se creaban de forma perezosa y nunca se
+// liberaban. Solo importa una vez al cerrar el programa (Unload no se llama
+// entre cambios de efecto), así que no afecta el comportamiento en caliente.
+void ParticlesEffect_Unload(void) {
+    if (PART_g_sceneSmallReady) {
+        UnloadRenderTexture(PART_g_sceneSmall);
+        PART_g_sceneSmallReady = false;
+    }
+    if (PART_g_sceneImg.data)     { UnloadImage(PART_g_sceneImg);     PART_g_sceneImg = (Image){ 0 }; }
+    if (PART_g_scenePrevImg.data) { UnloadImage(PART_g_scenePrevImg); PART_g_scenePrevImg = (Image){ 0 }; }
+    if (PART_g_motionImg.data)    { UnloadImage(PART_g_motionImg);    PART_g_motionImg = (Image){ 0 }; }
+    PART_g_hasPrevFrame = false;
 }
 
 #endif /* PARTICLES_EFFECT_H */

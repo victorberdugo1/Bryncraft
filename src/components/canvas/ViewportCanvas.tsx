@@ -162,6 +162,12 @@ export function ViewportCanvas() {
           } else {
             wasmBridge.pushCameraFrame(videoEl);
           }
+
+          // Nada más que empujar por rAF: la detección de manos del efecto
+          // "touchdesigner" corre sola en C (OpenCV) leyendo el mismo frame
+          // que pushCameraFrame acaba de mandar arriba — ver TD_DetectHands
+          // en native/effects/touchdesigner/touchdesigner_effect.h.
+
           rafId = requestAnimationFrame(tick);
         };
         rafId = requestAnimationFrame(tick);

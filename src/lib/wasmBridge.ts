@@ -1,5 +1,6 @@
 import type { EffectParams, RenderMessage, ViewportOverlayStats, ExportFormat } from "@/types/effects";
 import { initCascadeData } from "@/utils/cascadeLoader";
+import { initPalmModelData } from "@/utils/palmModelLoader";
 import { initMatrixFontData } from "@/utils/fontLoader";
 
 /**
@@ -116,10 +117,11 @@ class WasmBridge {
           console.error(text);
         },
         onRuntimeInitialized: async () => {
-          // Load Haar cascade XML from JavaScript before any face_detect calls,
-          // and the matrix-mode TTF font (katakana/hiragana support) in parallel —
-          // independent bridges, neither depends on the other.
-          await Promise.all([initCascadeData(), initMatrixFontData()]);
+          // Load Haar cascade XML before any face_detect calls, the palm
+          // detection ONNX model (cv::dnn) before any hand_tracking calls,
+          // and the matrix-mode TTF font (katakana/hiragana support) — all
+          // in parallel, independent bridges, none depends on the others.
+          await Promise.all([initCascadeData(), initPalmModelData(), initMatrixFontData()]);
           
           this.module = window.Module ?? null;
           this.ready = true;
@@ -258,7 +260,10 @@ class WasmBridge {
    * the exact same js_set_video_frame bridge used for decoded video-file
    * frames. main.c has no idea, and no need to know, whether a frame came
    * from a camera or a loaded file. Called once per rAF tick from
-   * ViewportCanvas while the camera is active; a no-op outside wasm mode. */
+   * ViewportCanvas while the camera is active; a no-op outside wasm mode.
+   * This is also the only frame source the "touchdesigner" effect needs —
+   * its hand detection runs entirely in C (OpenCV) against this same
+   * texture, see TD_DetectHands in touchdesigner_effect.h. */
   pushCameraFrame(videoEl: HTMLVideoElement) {
     if (this.mode !== "wasm" || !this.module) return;
     if (videoEl.readyState < 2 || !videoEl.videoWidth || !videoEl.videoHeight) return; // not enough data yet

@@ -1,10 +1,12 @@
-import { EFFECT_DEFINITIONS, type EffectId } from "@/types/effects";
+import { EFFECT_DEFINITIONS, EFFECT_IDS, type EffectId } from "@/types/effects";
 import { EffectThumbnail } from "@/components/effects/EffectThumbnail";
 import { useAppStore } from "@/store/useAppStore";
 import { usePanelTransparentBg } from "@/hooks/usePanelTransparency";
 import { cn } from "@/lib/utils";
 
-const ORDER: EffectId[] = ["ascii", "particles", "crt", "opencv"];
+// Orden de aparición en la barra lateral = orden de EFFECT_MODULES
+// (src/effects/index.ts). Un efecto nuevo aparece acá solo.
+const ORDER: EffectId[] = EFFECT_IDS;
 
 export function LeftSidebar() {
   const activeEffect = useAppStore((s) => s.activeEffect);

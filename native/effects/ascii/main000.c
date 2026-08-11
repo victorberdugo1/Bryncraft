@@ -11,53 +11,52 @@
 
 int main(void)
 {
-    const int screenW = 800;
-    const int screenH = 600;
+	const int screenW = 800;
+	const int screenH = 600;
 
-    InitWindow(screenW, screenH, "ASCII Renderer — example");
-    SetTargetFPS(60);
+	InitWindow(screenW, screenH, "ASCII Renderer — example");
+	SetTargetFPS(60);
 
-    const char *fontPath = "NotoSansJP-Kana.ttf";
-    FILE *f = fopen(fontPath, "rb");
-    if (f) {
-        fseek(f, 0, SEEK_END);
-        size_t size = ftell(f);
-        fseek(f, 0, SEEK_SET);
-        uint8_t *buffer = (uint8_t *)malloc(size);
-        if (buffer) {
-            size_t read = fread(buffer, 1, size, f);
-            if (read == size) {
-                js_set_matrix_font_data(size, buffer);
-            }
+	const char *fontPath = "NotoSansJP-Kana.ttf";
+	FILE *f = fopen(fontPath, "rb");
+	if (f) {
+		fseek(f, 0, SEEK_END);
+		size_t size = ftell(f);
+		fseek(f, 0, SEEK_SET);
+		uint8_t *buffer = (uint8_t *)malloc(size);
+		if (buffer) {
+			size_t read = fread(buffer, 1, size, f);
+			if (read == size) {
+				js_set_matrix_font_data(size, buffer);
+			}
 			free(buffer);
-        }
-        fclose(f);
-    }
+		}
+		fclose(f);
+	}
 
-    RenderTexture2D scene = LoadRenderTexture(screenW, screenH);
+	RenderTexture2D scene = LoadRenderTexture(screenW, screenH);
 
-    while (!WindowShouldClose())
-    {
-        float dt = GetFrameTime();
+	while (!WindowShouldClose())
+	{
+		float dt = GetFrameTime();
 
-
-        /*/ Start scene placeholder. /*/
-        BeginTextureMode(scene);
-            ClearBackground(DARKGRAY);
-            DrawCircle(screenW / 2, screenH / 2, 120, RED);
-        EndTextureMode();
+		/*/ Start scene placeholder. /*/
+		BeginTextureMode(scene);
+			ClearBackground(DARKGRAY);
+			DrawCircle(screenW / 2, screenH / 2, 120, RED);
+		EndTextureMode();
 		/*/ End scene placeholder. /*/
 
-        AsciiEffect_Update(dt);
+		AsciiEffect_Update(dt);
 
-        BeginDrawing();
-            ClearBackground(BLACK);
-            AsciiEffect_Draw(scene, screenW, screenH);
-        EndDrawing();
-    }
+		BeginDrawing();
+			ClearBackground(BLACK);
+			AsciiEffect_Draw(scene, screenW, screenH);
+		EndDrawing();
+	}
 
-    AsciiEffect_Unload();
-    UnloadRenderTexture(scene);
-    CloseWindow();
-    return 0;
+	AsciiEffect_Unload();
+	UnloadRenderTexture(scene);
+	CloseWindow();
+	return 0;
 }

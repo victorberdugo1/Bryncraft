@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import {
   defaultParamsFor,
+  EFFECT_IDS,
   type EffectId,
   type EffectParams,
   type ExportFormat,
@@ -110,12 +111,11 @@ interface AppState {
 
 export const useAppStore = create<AppState>((set) => ({
   activeEffect: "ascii",
-  paramsByEffect: {
-    ascii: defaultParamsFor("ascii"),
-    particles: defaultParamsFor("particles"),
-    crt: defaultParamsFor("crt"),
-    opencv: defaultParamsFor("opencv"),
-  },
+  // Se deriva de EFFECT_IDS (src/effects/index.ts) — un efecto nuevo
+  // agregado ahí aparece acá solo, sin tocar este archivo.
+  paramsByEffect: Object.fromEntries(
+    EFFECT_IDS.map((id) => [id, defaultParamsFor(id)])
+  ) as Record<EffectId, EffectParams>,
 
   zoom: "fit",
   zoomScale: 1,

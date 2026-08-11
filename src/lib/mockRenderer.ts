@@ -226,6 +226,9 @@ export class MockRenderer {
       case "opencv":
         this.renderOpencv(w, h, now);
         break;
+      case "touchdesigner":
+        this.renderTouchdesigner(w, h, now);
+        break;
     }
 
     const gpuFrameTimeMs = performance.now() - gpuStart;
@@ -826,6 +829,59 @@ export class MockRenderer {
    * switching to this effect in mock mode is clearly a "preview the wasm
    * build to see this effect" state rather than silently doing nothing.
    */
+  /**
+   * Reference preview for "touchdesigner". Real hand tracking (OpenCV palm
+   * detection) only exists in the native/ build, so this just draws the
+   * camera background (respecting mirror + showCameraBg) plus a label —
+   * no blob, no shader, nothing hidden behind black.
+   */
+  private renderTouchdesigner(w: number, h: number, t: number) {
+    const ctx = this.ctx;
+    const mirror = this.params.mirror !== false;
+    const showCameraBg = this.params.showCameraBg !== false;
+    const source = this.currentSourceFrame;
+
+    if (source && showCameraBg) {
+      ctx.fillStyle = "#000000";
+      ctx.fillRect(0, 0, w, h);
+      const { width, height } = this.sourceDims(source);
+      if (mirror) {
+        ctx.save();
+        ctx.translate(w, 0);
+        ctx.scale(-1, 1);
+        this.drawCover(ctx, source, width, height, w, h);
+        ctx.restore();
+      } else {
+        this.drawCover(ctx, source, width, height, w, h);
+      }
+    } else if (showCameraBg) {
+      // No camera/video source yet: same procedural placeholder the other
+      // effects use instead of a blank/black canvas.
+      const grad = ctx.createLinearGradient(0, 0, w, h);
+      grad.addColorStop(0, "#1b3a44");
+      grad.addColorStop(1, "#0b0b0e");
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, w, h);
+      this.paintWaveScene(ctx, w, h, t, "#44D4FF");
+    } else {
+      ctx.fillStyle = String(this.params.bgFallbackColor ?? "#2850FF");
+      ctx.fillRect(0, 0, w, h);
+    }
+
+    const label = "TouchDesigner Hand Tracker — build/run the WASM renderer for real hand detection";
+    ctx.save();
+    ctx.font = `${Math.max(12, Math.round(w * 0.014))}px ${ASCII_FONT_STACK}`;
+    ctx.textBaseline = "bottom";
+    const paddingX = 12;
+    const paddingY = 10;
+    const metrics = ctx.measureText(label);
+    ctx.fillStyle = "rgba(11,11,14,0.65)";
+    ctx.fillRect(0, h - metrics.actualBoundingBoxAscent - paddingY * 2, metrics.width + paddingX * 2, metrics.actualBoundingBoxAscent + paddingY * 2);
+    ctx.fillStyle = "#8CEBFF";
+    ctx.fillText(label, paddingX, h - paddingY);
+    ctx.restore();
+  }
+
   private renderOpencv(w: number, h: number, t: number) {
     const ctx = this.ctx;
     this.baseScene(w, h, t);

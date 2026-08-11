@@ -11,10 +11,16 @@
 #include "json_mini.h"
 #include "video_export.h"
 #include "effects/effect_common.h"
+
+// Único paso manual que EFFECT_LIST (effects/effect_common.h) no puede
+// automatizar: el #include del header de cada efecto. El resto del
+// dispatch (enum, SetParams, Init/Update/Draw/Unload, ClearBackground
+// condicional) sale solo de agregar una línea a EFFECT_LIST.
 #include "effects/ascii/ascii_effect.h"
 #include "effects/particles/particles_effect.h"
 #include "effects/crt/crt_effect.h"
 #include "effects/opencv/opencv_effect.h"
+#include "effects/touchdesigner/touchdesigner_effect.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -37,9 +43,6 @@ static int g_frameCount = 0;
 static double g_lastStatsTime = 0.0;
 static float g_lastGpuFrameTimeMs = 0.0f;
 static bool g_captureLocked = false;
-// Ground truth for JS: increments only when a frame was actually drawn AND
-// presented (EndDrawing() completed for real) — never on skipped/locked
-// ticks. The export loop polls this instead of guessing from canvas pixels.
 static int g_presentedFrames = 0;
 
 // Video-as-source-texture bridge state (see js_set_video_frame below).
@@ -50,15 +53,7 @@ static int g_videoTexH = 0;
 
 // ============================================================================
 // PROCEDURAL BASE SCENE
-//
-// ASCII, CRT and Particles all post-process whatever is rendered here — the
-// video (or the procedural wave placeholder when no video is loaded).
 // ============================================================================
-
-// Full-bleed placeholder scene: covers the entire g_screenW x g_screenH area
-// edge-to-edge with translucent animated wave bands, mirroring the JS
-// mockRenderer.ts paintWaveScene() fix — instead of a shape confined to the
-// center (previously 3 concentric circles + a rotating rectangle).
 static void DrawWaveBand(int screenW, int screenH, float t, int i, int bands, Color color) {
     const int steps = 32;
     float baseY = screenH * ((i + 0.5f) / bands);
@@ -79,9 +74,6 @@ static void DrawWaveBand(int screenW, int screenH, float t, int i, int bands, Co
 static void DrawBaseScene(void) {
     ClearBackground((Color){ 0, 0, 0, 0 });
 
-    // When a video source is active, it IS the base scene — effects sample
-    // g_sceneTarget the same way they always did, they just receive decoded
-    // video pixels instead of the procedural wave placeholder.
     if (g_videoTextureLoaded) {
         Rectangle src = { 0, 0, (float)g_videoTexture.width, (float)g_videoTexture.height };
         Rectangle dst = { 0, 0, (float)g_screenW, (float)g_screenH };
@@ -104,7 +96,6 @@ static void DrawBaseScene(void) {
 
 // ============================================================================
 // JS BRIDGE — EXPORTED FUNCTIONS
-// (Build with -s EXPORTED_FUNCTIONS=['_js_set_effect_json','_js_get_stats_json'])
 // ============================================================================
 
 #ifdef __EMSCRIPTEN__
@@ -119,10 +110,10 @@ void js_set_effect_json(const char *json) {
 
     const JsonValue *params = JsonObjectGet(root, "params");
     switch (g_activeEffect) {
-        case EFFECT_ASCII:     AsciiEffect_SetParams(params); break;
-        case EFFECT_PARTICLES: ParticlesEffect_SetParams(params); break;
-        case EFFECT_CRT:       CrtEffect_SetParams(params); break;
-        case EFFECT_OPENCV:    OpencvEffect_SetParams(params); break;
+#define X(ENUM, id, FnPrefix, needsClear) \
+        case EFFECT_##ENUM: FnPrefix##Effect_SetParams(params); break;
+        EFFECT_LIST(X)
+#undef X
         default: break;
     }
 }
@@ -150,13 +141,6 @@ EMSCRIPTEN_KEEPALIVE
 void js_start_export(int width, int height, int fps) {
     VideoExportStart(width, height);
 #ifdef __EMSCRIPTEN__
-    // emscripten_set_main_loop(..., 0, 1) drives this loop off
-    // requestAnimationFrame by default, and browsers fully suspend rAF
-    // callbacks while the tab is hidden/backgrounded — which froze the
-    // whole render loop (and therefore the export) the moment the user
-    // switched away from the tab. setTimeout-based timing keeps firing
-    // (throttled, but never fully stopped) in background tabs, so switch
-    // to it for the duration of the export.
     int safeFps = fps > 0 ? fps : 60;
     emscripten_set_main_loop_timing(EM_TIMING_SETTIMEOUT, 1000 / safeFps);
 #else
@@ -170,17 +154,10 @@ EMSCRIPTEN_KEEPALIVE
 void js_stop_export(void) {
     VideoExportStop();
 #ifdef __EMSCRIPTEN__
-    // Back to requestAnimationFrame-synced timing for normal foreground
-    // preview playback — smoother and cheaper than setTimeout.
     emscripten_set_main_loop_timing(EM_TIMING_RAF, 1);
 #endif
 }
 
-// Called when the canvas should switch to a different internal render
-// resolution — currently only from ViewportCanvas when a video is
-// loaded/cleared, so the scene (and every effect, which all receive
-// screenW/screenH per-frame and resize their own buffers off that) renders
-// at the video's native resolution instead of the fixed startup size.
 #ifdef __EMSCRIPTEN__
 EMSCRIPTEN_KEEPALIVE
 #endif
@@ -191,21 +168,12 @@ void js_set_canvas_size(int width, int height) {
     g_screenW = width;
     g_screenH = height;
 
-    // Resizes the GL viewport and, on PLATFORM_WEB, the backing <canvas>
-    // element itself (emscripten_set_canvas_element_size) — matches
-    // whatever ViewportCanvas.tsx just set canvas.width/height to.
     SetWindowSize(g_screenW, g_screenH);
 
     UnloadRenderTexture(g_sceneTarget);
     g_sceneTarget = LoadRenderTexture(g_screenW, g_screenH);
 }
 
-// Called once per displayed video frame from wasmBridge.ts (setSourceFrames /
-// setSourceFrameIndex), same trigger the MockRenderer path already used.
-// `rgba` is a tightly-packed width*height*4 RGBA8 buffer that wasmBridge.ts
-// malloc'd on the wasm heap and will free right after this call returns, so
-// it must be consumed synchronously here — which LoadTextureFromImage /
-// UpdateTexture do.
 #ifdef __EMSCRIPTEN__
 EMSCRIPTEN_KEEPALIVE
 #endif
@@ -234,8 +202,6 @@ void js_set_video_frame(const unsigned char *rgba, int width, int height) {
     }
 }
 
-// Called when the video is removed ("Quitar video") so DrawBaseScene falls
-// back to the procedural wave placeholder instead of the last decoded frame.
 #ifdef __EMSCRIPTEN__
 EMSCRIPTEN_KEEPALIVE
 #endif
@@ -266,10 +232,6 @@ void js_unlock_frame_capture(void) {
     g_captureLocked = false;
 }
 
-// Ground-truth signal for JS (see g_presentedFrames above). JS polls this
-// instead of sampling canvas pixels to guess whether a new frame landed —
-// pixel sampling can't tell "stably rendered" apart from "stably cleared to
-// blank by the browser", which is exactly the bug this replaces.
 #ifdef __EMSCRIPTEN__
 EMSCRIPTEN_KEEPALIVE
 #endif
@@ -282,13 +244,6 @@ int js_get_presented_frame_count(void) {
 // ============================================================================
 
 static void UpdateDrawFrame(void) {
-    // If JS is mid-capture (see js_lock_frame_capture), skip this tick
-    // entirely instead of blocking. A busy spin here used to hang the whole
-    // tab: this loop runs on the SAME single JS thread as the code that
-    // would eventually call js_unlock_frame_capture, so a `while` spin left
-    // nothing able to ever clear the lock — the browser never recovered.
-    // Returning immediately is non-blocking: the canvas simply stays as it
-    // was, and the next scheduled tick just checks again.
     if (g_captureLocked) {
         return;
     }
@@ -297,69 +252,21 @@ static void UpdateDrawFrame(void) {
     double gpuStart = GetTime();
 
     switch (g_activeEffect) {
-        case EFFECT_ASCII:
-            BeginTextureMode(g_sceneTarget);
-            DrawBaseScene();
-            EndTextureMode();
-
-            BeginDrawing();
-            AsciiEffect_Update(dt);
-            AsciiEffect_Draw(g_sceneTarget, g_screenW, g_screenH);
-            EndDrawing();
-            g_presentedFrames++;
-            break;
-
-        case EFFECT_CRT:
-            BeginTextureMode(g_sceneTarget);
-            DrawBaseScene();
-            EndTextureMode();
-
-            BeginDrawing();
-            ClearBackground(BLANK);
-            CrtEffect_Update(dt);
-            CrtEffect_Draw(g_sceneTarget, g_screenW, g_screenH);
-            EndDrawing();
-            g_presentedFrames++;
-            break;
-
-        case EFFECT_PARTICLES:
-            // Particles used to skip the scene pass entirely and draw straight
-            // to the backbuffer, so the video/base scene never made it into
-            // g_sceneTarget for this branch and ParticlesEffect_Draw had
-            // nothing to show behind the particles. Render it like the other
-            // effects so the video is visible under the particle layer.
-            BeginTextureMode(g_sceneTarget);
-            DrawBaseScene();
-            EndTextureMode();
-
-            BeginDrawing();
-            ParticlesEffect_Update(dt);
-            ParticlesEffect_Draw(g_sceneTarget, g_screenW, g_screenH);
-            EndDrawing();
-            g_presentedFrames++;
-            break;
-
-        case EFFECT_OPENCV:
-            // Same DrawBaseScene-into-g_sceneTarget pattern as every other
-            // effect: OpencvEffect_Draw reads g_sceneTarget's texture (video
-            // frame or procedural placeholder) as the source Mat, runs
-            // whichever OpenCV pipeline OpencvEffect_SetParams last selected
-            // (edges/contours/optical flow/background subtraction/face
-            // detection — see effects/opencv/opencv_effect.h's implementation
-            // section), and draws the
-            // result to the backbuffer.
-            BeginTextureMode(g_sceneTarget);
-            DrawBaseScene();
-            EndTextureMode();
-
-            BeginDrawing();
-            ClearBackground(BLANK);
-            OpencvEffect_Update(dt);
-            OpencvEffect_Draw(g_sceneTarget, g_screenW, g_screenH);
-            EndDrawing();
-            g_presentedFrames++;
-            break;
-
+#define X(ENUM, id, FnPrefix, needsClear) \
+        case EFFECT_##ENUM: { \
+            BeginTextureMode(g_sceneTarget); \
+            DrawBaseScene(); \
+            EndTextureMode(); \
+            BeginDrawing(); \
+            if (needsClear) ClearBackground(BLANK); \
+            FnPrefix##Effect_Update(dt); \
+            FnPrefix##Effect_Draw(g_sceneTarget, g_screenW, g_screenH); \
+            EndDrawing(); \
+            g_presentedFrames++; \
+            break; \
+        }
+        EFFECT_LIST(X)
+#undef X
         default:
             break;
     }
@@ -377,7 +284,9 @@ int main(void) {
     SetTargetFPS(60);
 
     g_sceneTarget = LoadRenderTexture(g_screenW, g_screenH);
-    CrtEffect_Init();
+#define X(ENUM, id, FnPrefix, needsClear) FnPrefix##Effect_Init();
+    EFFECT_LIST(X)
+#undef X
     VideoExportInit();
 
 #ifdef __EMSCRIPTEN__
@@ -390,9 +299,9 @@ int main(void) {
 
     VideoExportCleanup();
     if (g_videoTextureLoaded) UnloadTexture(g_videoTexture);
-    CrtEffect_Unload();
-    AsciiEffect_Unload();
-    OpencvEffect_Unload();
+#define X(ENUM, id, FnPrefix, needsClear) FnPrefix##Effect_Unload();
+    EFFECT_LIST(X)
+#undef X
     UnloadRenderTexture(g_sceneTarget);
     CloseWindow();
     return 0;
