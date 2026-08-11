@@ -94,7 +94,7 @@ EXPORTED_RUNTIME  := ['ccall','cwrap','HEAPU8','FS']
 DEST ?= ../public/wasm
 PRE_JS := pre.js
 
-CFLAGS   := -Os -Wall -DPLATFORM_WEB -I. -I$(RAYLIB_SRC) -I$(OPENCV_INCLUDE)
+CFLAGS   := -Os -Wall -DPLATFORM_WEB -msimd128 -I. -I$(RAYLIB_SRC) -I$(OPENCV_INCLUDE)
 CXXFLAGS := $(CFLAGS) -std=c++20
 LDFLAGS := ./$(RAYLIB_LIB) \
            -s USE_GLFW=3 \
@@ -191,16 +191,14 @@ raylib: emsdk
 # C++ library, not just fetching a binary like ffmpeg. Subsequent runs are
 # instant: like raylib, it's skipped once $(OPENCV_MARKER) exists.
 #
-# CV_ENABLE_INTRINSICS=OFF / CPU_BASELINE="" / CPU_DISPATCH="": OpenCV's
-# WASM SIMD128 universal-intrinsics header (hal/intrin_wasm.hpp) is broken
-# against one emscripten/clang version or another almost every release —
-# there are multiple long-standing upstream issues on exactly this
-# (opencv/opencv#18097, #26536; emscripten-core/emscripten#9340) with no
-# single OpenCV/emsdk pin that's reliably compatible. Turning off the
-# intrinsics dispatch entirely sidesteps that whole fragile path — a real
-# speed cost, but we already run at reduced processScale with per-mode
-# frame throttling (see effects/opencv/opencv_effect.h), so correctness/build-stability
-# matters more here than squeezing out SIMD.
+# CV_ENABLE_INTRINSICS=ON + -msimd128: matches what OpenCV's own
+# platforms/js/build_js.py does for opencv.js SIMD builds (CV_ENABLE_INTRINSICS=ON
+# plus -msimd128 propagated via CMAKE_CXX_FLAGS/CMAKE_C_FLAGS to every target,
+# not just the top-level TU). CPU_BASELINE/CPU_DISPATCH stay empty: those drive
+# x86 runtime multiversion dispatch (the actually-fragile part in
+# opencv/opencv#18097), unrelated to the single-baseline WASM SIMD128 path.
+# If this breaks the build again, revert to CV_ENABLE_INTRINSICS=OFF and drop
+# the two -msimd128 flags below, and remove -msimd128 from CFLAGS above.
 
 opencv: emsdk
 	@echo "[opencv] Cloning if needed (this is a ~500MB checkout)..."
@@ -218,7 +216,8 @@ opencv: emsdk
 		-DWITH_PNG=OFF -DWITH_JPEG=OFF -DWITH_TIFF=OFF -DWITH_WEBP=OFF -DWITH_OPENEXR=OFF -DWITH_V4L=OFF \
 		-DWITH_ITT=OFF -DWITH_IPP=OFF -DWITH_TBB=OFF -DWITH_OPENCL=OFF \
 		-DWITH_PROTOBUF=ON -DBUILD_PROTOBUF=ON -DPROTOBUF_UPDATE_FILES=OFF \
-		-DCV_ENABLE_INTRINSICS=OFF -DCPU_BASELINE="" -DCPU_DISPATCH="" \
+		-DCV_ENABLE_INTRINSICS=ON -DCPU_BASELINE="" -DCPU_DISPATCH="" \
+		-DCMAKE_CXX_FLAGS="-msimd128" -DCMAKE_C_FLAGS="-msimd128" \
 		-DENABLE_PRECOMPILED_HEADERS=OFF)
 	@echo "[opencv] Building (this can take a long time on first run)..."
 	@test -f "$(OPENCV_MARKER)" || $(call WITH_EMSDK,cd "$(OPENCV_BUILD_DIR)" && emmake make -j4 && emmake make install)
