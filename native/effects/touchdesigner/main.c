@@ -1,18 +1,7 @@
-// main.c — minimal example: hand-tracked liquid-glass portal (ascii/matrix/crt)
-//
-// La detección de manos real es OpenCV en C++ (ver la sección
-// TOUCHDESIGNER_EFFECT_IMPLEMENTATION al final de touchdesigner_effect.h) y
-// corre automáticamente en TouchdesignerEffect_Draw() cuando
-// TD_g_params.autoDetectHands es true (el default). Este demo standalone lo
-// desactiva y simula UNA mano con el mouse (botón izquierdo = pinch, botón
-// derecho = fist) para poder iterar el shader/look sin cámara ni levantar
-// el proyecto React completo.
-//
-// Compilar (Linux, ver native/README.md para flags de raylib):
-//   g++ main.c -I.. -I../.. -I<opencv_include> `pkg-config --cflags --libs opencv4` \
-//       -DTOUCHDESIGNER_EFFECT_IMPLEMENTATION -lraylib -lm -lpthread -ldl -o touchdesigner_demo
-
 #include "raylib.h"
+#include "ascii_effect.h"
+#include "crt_effect.h"
+#include "opencv_effect.h"
 #include "touchdesigner_effect.h"
 
 int main(void) {
@@ -22,12 +11,9 @@ int main(void) {
 
     RenderTexture2D scene = LoadRenderTexture(screenW, screenH);
     TouchdesignerEffect_Init();
-    TD_g_params.autoDetectHands = false; // este demo maneja las manos a mano (mouse), no con cámara
+    TD_g_params.autoDetectHands = false;
 
     while (!WindowShouldClose()) {
-        // Escena base: algo con textura/movimiento para que se note el
-        // ascii/matrix/crt de adentro del portal (una cámara real la
-        // reemplaza en el proyecto de verdad, vía OcvCamera_* u OpenCV).
         BeginTextureMode(scene);
             ClearBackground((Color){ 10, 12, 16, 255 });
             float t = (float)GetTime();
@@ -36,8 +22,20 @@ int main(void) {
                 float y = screenH * 0.5f + sinf(t * 1.3f + i) * screenH * 0.2f;
                 DrawCircle((int)x, (int)y, 40 + 10 * sinf(t + i), (Color){ 40 + i * 30, 80, 160, 255 });
             }
-            DrawText("mueve el mouse", 40, 40, 24, RAYWHITE);
+            DrawText("mueve el mouse -- 1-5: estilo de manos -- 6-0: estilo de fondo", 40, 40, 20, RAYWHITE);
         EndTextureMode();
+
+        if (IsKeyPressed(KEY_ONE)) TD_g_params.handStyle = TD_STYLE_NONE;
+        if (IsKeyPressed(KEY_TWO)) TD_g_params.handStyle = TD_STYLE_ASCII;
+        if (IsKeyPressed(KEY_THREE)) TD_g_params.handStyle = TD_STYLE_MATRIX;
+        if (IsKeyPressed(KEY_FOUR)) TD_g_params.handStyle = TD_STYLE_CRT;
+        if (IsKeyPressed(KEY_FIVE)) TD_g_params.handStyle = TD_STYLE_EDGES;
+
+        if (IsKeyPressed(KEY_SIX)) TD_g_params.bgStyle = TD_STYLE_NONE;
+        if (IsKeyPressed(KEY_SEVEN)) TD_g_params.bgStyle = TD_STYLE_ASCII;
+        if (IsKeyPressed(KEY_EIGHT)) TD_g_params.bgStyle = TD_STYLE_MATRIX;
+        if (IsKeyPressed(KEY_NINE)) TD_g_params.bgStyle = TD_STYLE_CRT;
+        if (IsKeyPressed(KEY_ZERO)) TD_g_params.bgStyle = TD_STYLE_EDGES;
 
         Vector2 mouse = GetMousePosition();
         float mx = screenW > 0 ? mouse.x / (float)screenW : 0.5f;

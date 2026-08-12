@@ -12,7 +12,17 @@ import headerRaw from "../../native/effects/touchdesigner/touchdesigner_effect.h
 import mainRaw from "../../native/effects/touchdesigner/main.c?raw";
 import readmeRaw from "../../native/effects/touchdesigner/README.md?raw";
 
+import buildShRaw from "../../native/effects/touchdesigner/touchdesigner_build_and_run.sh?raw";
+import buildBatRaw from "../../native/effects/touchdesigner/touchdesigner_build_and_run.bat?raw";
+import palmModelUrl from "../../native/assets/cv/palm_detection_mediapipe_2023feb.onnx?url";
+
+import asciiHeaderRaw from "../../native/effects/ascii/ascii_effect.h?raw";
+import crtHeaderRaw from "../../native/effects/crt/crt_effect.h?raw";
+import opencvHeaderRaw from "../../native/effects/opencv/opencv_effect.h?raw";
+
 // --- 1. Definición de parámetros (Inspector) --------------------------------
+
+const STYLE_OPTIONS = ["none", "ascii", "matrix", "crt", "edges"];
 
 const definition: EffectDefinition<"touchdesigner"> = {
   id: "touchdesigner",
@@ -20,6 +30,14 @@ const definition: EffectDefinition<"touchdesigner"> = {
   description:
     "Detección de manos en vivo (OpenCV, todo en C — sin JS/modelos externos): la cámara se ve completa, sin negro, y cada mano detectada se cubre con un blob de vidrio líquido; si acercás las dos manos, un puente de slime las conecta.",
   params: [
+    {
+      key: "handStyle",
+      label: "Hand Effect Style",
+      type: "select",
+      default: "none",
+      options: STYLE_OPTIONS,
+      group: "Hand Effect",
+    },
     { key: "mirror", label: "Mirror (front camera)", type: "bool", default: true, group: "Detection" },
     {
       key: "handReanchorInterval",
@@ -69,11 +87,31 @@ const definition: EffectDefinition<"touchdesigner"> = {
     { key: "showHandCount", label: "Show Hand Count", type: "bool", default: false, group: "Liquid Glass" },
 
     { key: "showCameraBg", label: "Show Camera Background", type: "bool", default: true, group: "Background" },
+    {
+      key: "bgStyle",
+      label: "Background Style",
+      type: "select",
+      default: "none",
+      options: STYLE_OPTIONS,
+      group: "Background",
+    },
     { key: "bgFallbackColor", label: "Background Color", type: "color", default: "#000000FF", group: "Background" },
   ],
 };
 
 // --- 2. Codegen ---------------------------------------------------------------
+
+const TD_STYLE_ENUM: Record<string, string> = {
+  none: "TD_STYLE_NONE",
+  ascii: "TD_STYLE_ASCII",
+  matrix: "TD_STYLE_MATRIX",
+  crt: "TD_STYLE_CRT",
+  edges: "TD_STYLE_EDGES",
+};
+
+function tdStyle(v: unknown): string {
+  return TD_STYLE_ENUM[String(v)] ?? "TD_STYLE_NONE";
+}
 
 function buildParamsBlock(params: EffectParams): string {
   return `static TD_Params TD_g_params = {
@@ -91,6 +129,8 @@ function buildParamsBlock(params: EffectParams): string {
     .showHandCount = ${params.showHandCount ? "true" : "false"},
     .bgFallbackColor = ${hexToColorLiteral(String(params.bgFallbackColor ?? "#000000FF"))},
     .forceFallback = false,
+    .handStyle = ${tdStyle(params.handStyle)},
+    .bgStyle = ${tdStyle(params.bgStyle)},
 };
 `;
 }
@@ -102,7 +142,19 @@ const codegen: EffectCodegenModule = {
   readmeRaw,
   paramsRegex: /static TD_Params TD_g_params = \{[\s\S]*?\};\r?\n/,
   buildParamsBlock,
-  extras: [],
+  extras: [
+    { filename: "touchdesigner_build_and_run.sh", label: "Build script (Linux/macOS)", kind: "text", content: buildShRaw },
+    { filename: "touchdesigner_build_and_run.bat", label: "Build script (Windows / MinGW)", kind: "text", content: buildBatRaw },
+    {
+      filename: "palm_detection_mediapipe_2023feb.onnx",
+      label: "Modelo ONNX (detección de palma, MediaPipe)",
+      kind: "binary-url",
+      url: palmModelUrl,
+    },
+    { filename: "ascii_effect.h", label: "Estilo ASCII / Matrix (para Hand/Background Effect Style)", kind: "text", content: asciiHeaderRaw },
+    { filename: "crt_effect.h", label: "Estilo CRT (para Hand/Background Effect Style)", kind: "text", content: crtHeaderRaw },
+    { filename: "opencv_effect.h", label: "Estilo Edges (para Hand/Background Effect Style)", kind: "text", content: opencvHeaderRaw },
+  ],
 };
 
 // --- 3. Thumbnail --------------------------------------------------------------

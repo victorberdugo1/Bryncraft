@@ -26,7 +26,10 @@ void AsciiEffect_SetParams(const JsonValue *paramsObj);
 #endif
 void AsciiEffect_Update(float dt);
 void AsciiEffect_Draw(RenderTexture2D scene, int screenW, int screenH);
+void AsciiEffect_Prepare(RenderTexture2D scene, int screenW, int screenH);
+void AsciiEffect_DrawFinal(int screenW, int screenH);
 void AsciiEffect_Unload(void);
+void AsciiEffect_SetMode(int mode);
 
 void js_set_matrix_font_data(size_t bufSize, uint8_t *buf);
 const char *js_get_ascii_grid_text(void);
@@ -110,8 +113,15 @@ static int ASCII_ParseDirection(const char *s, int fallback) {
 	if (strcmp(s, "down") == 0) return ASCII_MATRIX_DIR_DOWN;
 	return fallback;
 }
+#endif
+
 void AsciiEffect_Init(void) { }
 
+void AsciiEffect_SetMode(int mode) {
+	ASCII_g_params.mode = (mode == ASCII_MODE_MATRIX) ? ASCII_MODE_MATRIX : ASCII_MODE_NORMAL;
+}
+
+#ifdef __EMSCRIPTEN__
 void AsciiEffect_SetParams(const JsonValue *paramsObj) {
 	if (!paramsObj) return;
 	const char *ramp = JsonAsString(JsonObjectGet(paramsObj, "characters"), ASCII_g_params.ramp);
@@ -235,7 +245,7 @@ static void ASCII_MatrixEnsureFont(int fontSize) {
 	ASCII_g_matrixFontBuiltChars[ASCII_MATRIX_CHARS_MAX - 1] = '\0';
 }
 
-void AsciiEffect_Draw(RenderTexture2D scene, int screenW, int screenH) {
+void AsciiEffect_Prepare(RenderTexture2D scene, int screenW, int screenH) {
 	int fontSize = ASCII_g_params.fontSize > 0 ? ASCII_g_params.fontSize : 10;
 	int cols = screenW / fontSize;
 	int rows = screenH / fontSize;
@@ -274,7 +284,6 @@ void AsciiEffect_Draw(RenderTexture2D scene, int screenW, int screenH) {
 		ASCII_g_gridRows = rows;
 		ASCII_g_frameCounter = 0;
 	}
-	ClearBackground(ASCII_g_params.background);
 	if (ASCII_g_frameCounter % ASCII_READBACK_INTERVAL == 0) {
 		BeginTextureMode(ASCII_g_gridTarget);
 		DrawTexturePro(scene.texture,
@@ -335,6 +344,15 @@ void AsciiEffect_Draw(RenderTexture2D scene, int screenW, int screenH) {
 		UnloadImage(img);
 	}
 	ASCII_g_frameCounter++;
+}
+
+void AsciiEffect_DrawFinal(int screenW, int screenH) {
+	int fontSize = ASCII_g_params.fontSize > 0 ? ASCII_g_params.fontSize : 10;
+	int cols = screenW / fontSize;
+	int rows = screenH / fontSize;
+	if (cols <= 0 || rows <= 0) return;
+
+	ClearBackground(ASCII_g_params.background);
 	if (ASCII_g_params.mode == ASCII_MODE_MATRIX) {
 		ASCII_MatrixEnsureCodepoints();
 		ASCII_MatrixEnsureFont(fontSize);
@@ -418,6 +436,11 @@ void AsciiEffect_Draw(RenderTexture2D scene, int screenW, int screenH) {
 				DrawText(glyph, x * fontSize, y * fontSize, fontSize, ASCII_g_params.foreground);
 			}
 	}
+}
+
+void AsciiEffect_Draw(RenderTexture2D scene, int screenW, int screenH) {
+	AsciiEffect_Prepare(scene, screenW, screenH);
+	AsciiEffect_DrawFinal(screenW, screenH);
 }
 
 #ifdef __EMSCRIPTEN__

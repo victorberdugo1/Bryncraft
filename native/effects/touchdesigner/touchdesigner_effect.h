@@ -70,6 +70,26 @@ void TD_HandCamera_Close(void);
 }
 #endif
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+void AsciiEffect_Draw(RenderTexture2D scene, int screenW, int screenH);
+void AsciiEffect_Prepare(RenderTexture2D scene, int screenW, int screenH);
+void AsciiEffect_DrawFinal(int screenW, int screenH);
+void AsciiEffect_SetMode(int mode);
+void CrtEffect_Draw(RenderTexture2D scene, int screenW, int screenH);
+void CrtEffect_Prepare(RenderTexture2D scene, int screenW, int screenH);
+void CrtEffect_DrawFinal(RenderTexture2D scene, int screenW, int screenH);
+void OpencvEffect_Draw(RenderTexture2D scene, int screenW, int screenH);
+void OpencvEffect_Prepare(RenderTexture2D scene, int screenW, int screenH);
+void OpencvEffect_DrawFinal(int screenW, int screenH);
+void OpencvEffect_SetEdgesMode(void);
+
+#ifdef __cplusplus
+}
+#endif
+
 #define TD_MAX_HANDS 2
 
 typedef struct {
@@ -78,6 +98,14 @@ typedef struct {
     float rotation;
     bool  present;
 } TD_Hand;
+
+typedef enum {
+    TD_STYLE_NONE = 0,
+    TD_STYLE_ASCII,
+    TD_STYLE_MATRIX,
+    TD_STYLE_CRT,
+    TD_STYLE_EDGES,
+} TD_RenderStyle;
 
 typedef struct {
     bool   showCameraBg;
@@ -94,6 +122,8 @@ typedef struct {
     bool   showHandCount;
     Color  bgFallbackColor;
     bool   forceFallback;
+    TD_RenderStyle handStyle;
+    TD_RenderStyle bgStyle;
 } TD_Params;
 
 static TD_Params TD_g_params = {
@@ -111,7 +141,72 @@ static TD_Params TD_g_params = {
     .showHandCount = false,
     .bgFallbackColor = (Color){ 0, 0, 0, 255 },
     .forceFallback = false,
+    .handStyle = TD_STYLE_NONE,
+    .bgStyle = TD_STYLE_NONE,
 };
+
+static RenderTexture2D TD_g_styleTarget[5];
+static bool TD_g_styleTargetReady[5] = { false, false, false, false, false };
+static bool TD_g_styleComputedThisFrame[5] = { false, false, false, false, false };
+
+static RenderTexture2D TD_ApplyStyle(TD_RenderStyle style, RenderTexture2D scene) {
+    if (style == TD_STYLE_NONE) return scene;
+
+    int w = scene.texture.width;
+    int h = scene.texture.height;
+
+    if (!TD_g_styleTargetReady[style] ||
+        TD_g_styleTarget[style].texture.width != w ||
+        TD_g_styleTarget[style].texture.height != h) {
+        if (TD_g_styleTargetReady[style]) UnloadRenderTexture(TD_g_styleTarget[style]);
+        TD_g_styleTarget[style] = LoadRenderTexture(w, h);
+        TD_g_styleTargetReady[style] = true;
+        TD_g_styleComputedThisFrame[style] = false;
+    }
+
+    if (TD_g_styleComputedThisFrame[style]) return TD_g_styleTarget[style];
+
+    switch (style) {
+        case TD_STYLE_ASCII:
+            AsciiEffect_SetMode(0);
+            AsciiEffect_Prepare(scene, w, h);
+            break;
+        case TD_STYLE_MATRIX:
+            AsciiEffect_SetMode(1);
+            AsciiEffect_Prepare(scene, w, h);
+            break;
+        case TD_STYLE_EDGES:
+            OpencvEffect_SetEdgesMode();
+            OpencvEffect_Prepare(scene, w, h);
+            break;
+        case TD_STYLE_CRT:
+            CrtEffect_Prepare(scene, w, h);
+            break;
+        default:
+            break;
+    }
+
+    BeginTextureMode(TD_g_styleTarget[style]);
+        ClearBackground(BLACK);
+        switch (style) {
+            case TD_STYLE_ASCII:
+            case TD_STYLE_MATRIX:
+                AsciiEffect_DrawFinal(w, h);
+                break;
+            case TD_STYLE_CRT:
+                CrtEffect_DrawFinal(scene, w, h);
+                break;
+            case TD_STYLE_EDGES:
+                OpencvEffect_DrawFinal(w, h);
+                break;
+            default:
+                break;
+        }
+    EndTextureMode();
+
+    TD_g_styleComputedThisFrame[style] = true;
+    return TD_g_styleTarget[style];
+}
 
 static TD_Hand TD_g_hands[TD_MAX_HANDS];
 static TD_Hand TD_g_handsTarget[TD_MAX_HANDS];
@@ -190,6 +285,15 @@ static Color TD_HexToColor(const char *hex, Color fallback) {
     return fallback;
 }
 
+static TD_RenderStyle TD_ParseStyle(const char *s) {
+    if (!s) return TD_STYLE_NONE;
+    if (strcmp(s, "ascii") == 0) return TD_STYLE_ASCII;
+    if (strcmp(s, "matrix") == 0) return TD_STYLE_MATRIX;
+    if (strcmp(s, "crt") == 0) return TD_STYLE_CRT;
+    if (strcmp(s, "edges") == 0) return TD_STYLE_EDGES;
+    return TD_STYLE_NONE;
+}
+
 void TouchdesignerEffect_SetParams(const JsonValue *paramsObj) {
     if (!paramsObj) return;
     TD_g_params.showCameraBg = JsonAsBool(JsonObjectGet(paramsObj, "showCameraBg"), TD_g_params.showCameraBg);
@@ -209,6 +313,9 @@ void TouchdesignerEffect_SetParams(const JsonValue *paramsObj) {
 
     TD_g_params.bgFallbackColor = TD_HexToColor(JsonAsString(JsonObjectGet(paramsObj, "bgFallbackColor"), NULL), TD_g_params.bgFallbackColor);
     TD_g_params.forceFallback = JsonAsBool(JsonObjectGet(paramsObj, "forceFallback"), TD_g_params.forceFallback);
+
+    TD_g_params.handStyle = TD_ParseStyle(JsonAsString(JsonObjectGet(paramsObj, "handStyle"), NULL));
+    TD_g_params.bgStyle = TD_ParseStyle(JsonAsString(JsonObjectGet(paramsObj, "bgStyle"), NULL));
 }
 #endif
 
@@ -834,19 +941,24 @@ static void TD_DrawSlimeDrips(Vector2 c0, float r0, Vector2 c1, float r1, Color 
 void TouchdesignerEffect_Draw(RenderTexture2D scene, int screenW, int screenH) {
     RenderTexture2D effScene = TD_GetEffectiveScene(scene, screenW, screenH);
 
+    for (int i = 1; i <= TD_STYLE_EDGES; i++) TD_g_styleComputedThisFrame[i] = false;
+
     if (TD_g_params.autoDetectHands) {
         TD_DetectHands(effScene, screenW, screenH);
     }
 
     bool useCamera = TD_g_params.showCameraBg && !TD_IsSceneBlack(effScene);
     if (useCamera) {
-        DrawTexturePro(effScene.texture,
-            (Rectangle){ 0, 0, (float)effScene.texture.width, -(float)effScene.texture.height },
+        RenderTexture2D bgScene = TD_ApplyStyle(TD_g_params.bgStyle, effScene);
+        DrawTexturePro(bgScene.texture,
+            (Rectangle){ 0, 0, (float)bgScene.texture.width, -(float)bgScene.texture.height },
             (Rectangle){ 0, 0, (float)screenW, (float)screenH },
             (Vector2){ 0, 0 }, 0.0f, WHITE);
     } else {
         ClearBackground(TD_g_params.bgFallbackColor);
     }
+
+    RenderTexture2D handScene = TD_ApplyStyle(TD_g_params.handStyle, effScene);
 
     Vector2 centers[TD_MAX_HANDS] = {0};
     float   radii[TD_MAX_HANDS] = {0};
@@ -936,7 +1048,7 @@ void TouchdesignerEffect_Draw(RenderTexture2D scene, int screenW, int screenH) {
     TD_s_wasBridged = hasBridgeRect;
 
     if (hasBridgeRect) {
-        TD_CaptureBridgeLensRegion(effScene, screenW, screenH, capMinX, capMinY, capMaxX, capMaxY);
+        TD_CaptureBridgeLensRegion(handScene, screenW, screenH, capMinX, capMinY, capMaxX, capMaxY);
 
         float bdx = centers[1].x - centers[0].x;
         float bdy = centers[1].y - centers[0].y;
@@ -1000,7 +1112,7 @@ void TouchdesignerEffect_Draw(RenderTexture2D scene, int screenW, int screenH) {
                 float captureRadius = radii[i] * 0.62f;
                 if (captureRadius < 8.0f) captureRadius = 8.0f;
 
-                TD_CaptureLensRegion(i, effScene, screenW, screenH, centers[i], captureRadius);
+                TD_CaptureLensRegion(i, handScene, screenW, screenH, centers[i], captureRadius);
                 TD_DrawHandGlass(TD_g_lensCapture[i].texture, captureRadius, centers[i], radii[i], rotations[i],
                                   TD_g_params.glassColor, TD_g_time, (float)i * 2.4f, elongate[i],
                                   mergeDir, mergeStrength,
@@ -1031,6 +1143,9 @@ void TouchdesignerEffect_Unload(void) {
         if (TD_g_lensCaptureReady[i]) { UnloadRenderTexture(TD_g_lensCapture[i]); TD_g_lensCaptureReady[i] = false; }
     }
     if (TD_g_bridgeLensCaptureReady) { UnloadRenderTexture(TD_g_bridgeLensCapture); TD_g_bridgeLensCaptureReady = false; }
+    for (int i = 1; i <= TD_STYLE_EDGES; i++) {
+        if (TD_g_styleTargetReady[i]) { UnloadRenderTexture(TD_g_styleTarget[i]); TD_g_styleTargetReady[i] = false; }
+    }
     TD_HandTracking_Unload();
 }
 #endif
@@ -1042,6 +1157,9 @@ void TouchdesignerEffect_Unload(void) {
 
 #include <opencv2/core.hpp>
 #include <opencv2/imgproc.hpp>
+#ifndef __EMSCRIPTEN__
+#include <opencv2/videoio.hpp>
+#endif
 #include <opencv2/dnn.hpp>
 #include <opencv2/video/tracking.hpp>
 
@@ -1237,11 +1355,13 @@ static bool EnsurePalmNetLoaded(void) {
             fprintf(stderr, "[touchdesigner] Palm model buffer not set. Call js_set_palm_model_data() from JavaScript first.\n");
         }
 #else
-        const char *localPath = "../../assets/cv/palm_detection_mediapipe_2023feb.onnx";
-        g_palmNet = cv::dnn::readNet(localPath);
+        const char *cwdPath = "palm_detection_mediapipe_2023feb.onnx";
+        const char *repoPath = "../../assets/cv/palm_detection_mediapipe_2023feb.onnx";
+        const char *chosenPath = FileExists(cwdPath) ? cwdPath : repoPath;
+        g_palmNet = cv::dnn::readNet(chosenPath);
         g_palmNetOk = !g_palmNet.empty();
         if (!g_palmNetOk) {
-            fprintf(stderr, "[touchdesigner] Could not load %s\n", localPath);
+            fprintf(stderr, "[touchdesigner] Could not load %s\n", chosenPath);
         }
 #endif
     } catch (const cv::Exception &e) {

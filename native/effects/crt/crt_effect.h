@@ -27,6 +27,8 @@ void CrtEffect_SetParams(const JsonValue *paramsObj);
 #endif
 void CrtEffect_Update(float dt);
 void CrtEffect_Draw(RenderTexture2D scene, int screenW, int screenH);
+void CrtEffect_Prepare(RenderTexture2D scene, int screenW, int screenH);
+void CrtEffect_DrawFinal(RenderTexture2D scene, int screenW, int screenH);
 void CrtEffect_Unload(void);
 
 #ifdef __cplusplus
@@ -301,7 +303,12 @@ static void CRT_DrawVhsOverlay(int screenW, int screenH) {
 	}
 }
 
-void CrtEffect_Draw(RenderTexture2D scene, int screenW, int screenH) {
+void CrtEffect_Prepare(RenderTexture2D scene, int screenW, int screenH) {
+	if (!CRT_g_shaderLoaded) return;
+	if (CRT_g_params.ghosting > 0.0f) CRT_UpdateGhostHistory(scene, screenW, screenH, CRT_g_lastDt);
+}
+
+void CrtEffect_DrawFinal(RenderTexture2D scene, int screenW, int screenH) {
 	if (!CRT_g_shaderLoaded) {
 		DrawTextureRec(scene.texture,
 			(Rectangle){0,0,(float)scene.texture.width,-(float)scene.texture.height},
@@ -311,7 +318,6 @@ void CrtEffect_Draw(RenderTexture2D scene, int screenW, int screenH) {
 	}
 
 	bool useGhost = CRT_g_params.ghosting > 0.0f;
-	if (useGhost) CRT_UpdateGhostHistory(scene, screenW, screenH, CRT_g_lastDt);
 
 	SetShaderValue(CRT_g_shader, CRT_g_locTime, &CRT_g_time, SHADER_UNIFORM_FLOAT);
 	SetShaderValue(CRT_g_shader, CRT_g_locScanlineIntensity, &CRT_g_params.scanlineIntensity, SHADER_UNIFORM_FLOAT);
@@ -362,6 +368,11 @@ void CrtEffect_Draw(RenderTexture2D scene, int screenW, int screenH) {
 	EndShaderMode();
 
 	CRT_DrawVhsOverlay(screenW, screenH);
+}
+
+void CrtEffect_Draw(RenderTexture2D scene, int screenW, int screenH) {
+	CrtEffect_Prepare(scene, screenW, screenH);
+	CrtEffect_DrawFinal(scene, screenW, screenH);
 }
 
 void CrtEffect_Unload(void) {

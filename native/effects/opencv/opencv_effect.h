@@ -25,8 +25,11 @@ void OpencvEffect_SetParams(const JsonValue *paramsObj);
 
 void OpencvEffect_Update(float dt);
 void OpencvEffect_Draw(RenderTexture2D scene, int screenW, int screenH);
+void OpencvEffect_Prepare(RenderTexture2D scene, int screenW, int screenH);
+void OpencvEffect_DrawFinal(int screenW, int screenH);
 
 void OpencvEffect_Unload(void);
+void OpencvEffect_SetEdgesMode(void);
 
 #ifndef __EMSCRIPTEN__
 bool OcvCamera_Open(int deviceIndex);
@@ -177,6 +180,10 @@ static OcvMode OcvModeFromString(const char *s, OcvMode fallback) {
 }
 
 void OpencvEffect_Init(void) { }
+
+void OpencvEffect_SetEdgesMode(void) {
+	g_params.mode = OCV_MODE_EDGES;
+}
 
 #ifdef __EMSCRIPTEN__
 void OpencvEffect_SetParams(const JsonValue *paramsObj) {
@@ -405,7 +412,7 @@ static cv::Mat RunFaceDetect(const cv::Mat &frame) {
 	return out;
 }
 
-void OpencvEffect_Draw(RenderTexture2D scene, int screenW, int screenH) {
+void OpencvEffect_Prepare(RenderTexture2D scene, int screenW, int screenH) {
 	float scale = g_params.processScale;
 	if (scale < 0.1f) scale = 0.1f;
 	if (scale > 1.0f) scale = 1.0f;
@@ -476,11 +483,19 @@ void OpencvEffect_Draw(RenderTexture2D scene, int screenW, int screenH) {
 	} else {
 		UpdateTexture(g_outputTexture, out.data);
 	}
+}
 
+void OpencvEffect_DrawFinal(int screenW, int screenH) {
+	if (!g_outputTextureReady) return;
 	DrawTexturePro(g_outputTexture,
-		(Rectangle){ 0, 0, (float)workW, (float)workH },
+		(Rectangle){ 0, 0, (float)g_outW, (float)g_outH },
 		(Rectangle){ 0, 0, (float)screenW, (float)screenH },
 		(Vector2){ 0, 0 }, 0.0f, WHITE);
+}
+
+void OpencvEffect_Draw(RenderTexture2D scene, int screenW, int screenH) {
+	OpencvEffect_Prepare(scene, screenW, screenH);
+	OpencvEffect_DrawFinal(screenW, screenH);
 }
 
 void OpencvEffect_Unload(void) {
