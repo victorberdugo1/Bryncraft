@@ -64,13 +64,16 @@ defecto.
 | `touchdesigner_build_and_run.sh` | Builda y corre el demo en Linux/macOS (requiere `libopencv-dev` >= 4.7, por `cv::dnn::blobFromImageWithParams`) |
 | `touchdesigner_build_and_run.bat` | Descarga un OpenCV-MinGW prearmado si hace falta, builda y corre el demo en Windows |
 
-Además de estos, para que el ejecutable compile hace falta bajar (tab
-"Extra" en la app) los `.h` de los estilos que quieras usar en
-`handStyle`/`bgStyle`: `ascii_effect.h` (cubre `ascii` y `matrix`),
-`crt_effect.h` (`crt`) y `opencv_effect.h` (`edges`) — y el modelo
-`palm_detection_mediapipe_2023feb.onnx`, obligatorio siempre (es el
-detector de manos). Los build scripts ya asumen que los tres `.h` están
-presentes.
+Además de estos, para que el ejecutable compile hacen falta los tres `.h`
+de estilo — `ascii_effect.h`, `crt_effect.h`, `opencv_effect.h` — bajados
+desde el tab "Extra" en la app. Son obligatorios **siempre**, aunque uses
+`handStyle`/`bgStyle` en `none`: `main.c` los incluye sin condición y
+`handStyle`/`bgStyle` se eligen en runtime (teclas 1-5 / 6-0), no en tiempo
+de compilación, así que los tres estilos tienen que estar linkeados de
+antemano. También hace falta el modelo `palm_detection_mediapipe_2023feb.onnx`
+(detector de manos). Usá el botón "Download all (.zip)" del tab Extra para
+bajar todo junto y no olvidarte de ninguno; los build scripts ya asumen que
+los tres `.h` están presentes.
 
 > **Igual que `opencv_effect.h`, este no es un `gcc` plano.** La sección
 > `TOUCHDESIGNER_EFFECT_IMPLEMENTATION` necesita un compilador de C++

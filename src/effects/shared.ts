@@ -100,7 +100,11 @@ export interface EffectCodegenModule {
   readmeRaw: string;
   paramsRegex: RegExp;
   buildParamsBlock: (params: EffectParams) => string;
-  extras: ExtraAsset[];
+  /** Casi siempre una lista fija. Si un efecto necesita distintos archivos
+   * según los params actuales (ej. touchdesigner: handStyle/bgStyle deciden
+   * qué ascii_effect.h/crt_effect.h/opencv_effect.h hacen falta), puede ser
+   * una función en vez de un array. */
+  extras: ExtraAsset[] | ((params: EffectParams) => ExtraAsset[]);
 }
 
 // ============================================================================

@@ -1,160 +1,163 @@
-# OpenCV Vision
+# TouchDesigner Hand Tracker
 
-Runs entirely on the CPU via OpenCV — no fragment shader. Five modes:
-`edges` (Canny), `contours`, `optical_flow`, `bg_subtract` (background
-subtraction), and `face_detect` (Haar cascade). On a real desktop, it can
-also grab the system camera directly (`OcvCamera_Open`/
-`OcvCamera_CaptureInto`) instead of the rendered scene.
+Live hand detection (OpenCV, all in C/C++ — no JS/external models except
+the initial `.onnx` load): the camera shows fully, no black bars, and
+each detected hand gets covered by a liquid-glass blob; bring both hands
+close together and a slime bridge connects them.
 
-> **Unlike `ascii`/`particles`/`crt`, this is the only effect in the
-> family that isn't compiled with plain `gcc`.** OpenCV has no C API, so
-> `opencv_effect.h` needs a C++ compiler pointed straight at it (`-x
-> c++`), needs to link against `libopencv`, and on Windows also needs to
-> obtain that library (it doesn't ship with MinGW). That's why this
-> folder, unlike the other three, ships build scripts
-> (`opencv_build_and_run.sh` / `.bat`) instead of just a one-line `gcc`
-> command in the README.
+There are two independent styles, each selectable from a dropdown:
 
-## Files in this folder
-
-| File | What it is |
+| Param | Where it applies |
 |---|---|
-| `opencv_effect.h` | Single-header in stb_image.h style: flat C interface at the top (what `main.c` parses), real OpenCV pipeline in C++ below `OPENCV_EFFECT_IMPLEMENTATION` |
-| `main003.c` | Minimal standalone demo — just this effect, without the rest of Bryncraft |
-| `opencv_build_and_run.sh` | Builds and runs the demo on Linux/macOS (requires `libopencv-dev` via pkg-config) |
-| `opencv_build_and_run.bat` | Downloads a prebuilt OpenCV-MinGW if needed, builds and runs the demo on Windows |
+| `handStyle` | Inside the glass/slime of the hands |
+| `bgStyle` | The camera background, outside the glass/slime |
 
-Unlike `ascii`/`particles`/`crt`, `opencv_effect.h` has no companion
-`.cpp`: it's compiled by pointing a C++ compiler directly at this header
-(`-x c++`), because OpenCV has no pure-C API.
+Options for both: `none` (passthrough, no filter) / `ascii` / `matrix` /
+`crt` / `edges`.
 
-## `face_detect` needs `haarcascade_frontalface_default.xml`
+These 4 styles **are not reimplemented here**: `touchdesigner_effect.h`
+reuses them as-is by calling `AsciiEffect_Draw`/`AsciiEffect_SetMode`
+(`ascii_effect.h`), `CrtEffect_Draw` (`crt_effect.h`) and
+`OpencvEffect_Draw`/`OpencvEffect_SetEdgesMode` (`opencv_effect.h`) — it
+only declares those symbols as `extern`, it doesn't include those headers.
 
-The `face_detect` mode uses `cv::CascadeClassifier`, which doesn't ship
-with the model embedded: you need to supply the Haar cascade XML at
-runtime. Without that file, `face_detect` doesn't throw an error — it
-simply detects nothing (no box gets drawn).
+---
 
-- `opencv_effect.h` does **not** read the XML directly from disk: it
-  expects the bytes to be passed in via
-  `js_set_cascade_data(size_t bufSize, uint8_t *buf)` (meant to be set
-  from JS in the WASM build). Internally it dumps them to
-  `/tmp/cascade.xml` and loads from there with
-  `CascadeClassifier::load()`.
-- For the standalone demo (`main003.c`), this is handled by reading the
-  XML from disk by hand and passing it to `js_set_cascade_data()` from
-  `main()` — no need to touch `opencv_effect.h` for that.
-- On Windows, `/tmp/cascade.xml` resolves to `<actual_drive>:\tmp\...`;
-  if that folder doesn't exist, the internal dump fails silently.
-  `main003.c` creates `/tmp` at startup just in case.
-- The XML comes from the official OpenCV repo
-  (`data/haarcascades/haarcascade_frontalface_default.xml`) — if you use
-  `opencv_build_and_run.bat`, it's already included inside
-  `opencv-mingw\etc\haarcascades\`, you just need to copy it next to the
-  compiled `.exe`.
+## ✅ What you need to compile this (read this first)
 
-## JSON contract (`OpencvEffect_SetParams`)
+The most common failure isn't a code bug: it's that one of the files
+below is missing next to the `.c`/`.h`, or the `.onnx` model ended up in
+the wrong folder. Use the **"Download all (.zip)"** button in the app's
+**Extra** tab — it grabs everything below in one step, so you don't have
+to check items off one by one:
 
-```json
-{ "effect": "opencv", "params": {
-  "mode": "edges | contours | optical_flow | bg_subtract | face_detect",
-  "processScale": 0.5, "mirror": false,
+| # | File | What it is | Always required? |
+|---|---|---|---|
+| 1 | `touchdesigner_effect.h` | The effect itself (hand detection + liquid glass + slime) | Yes |
+| 2 | `main.c` | Entry point: opens the window, opens the camera, calls the effect every frame | Yes |
+| 3 | `touchdesigner_build_and_run.sh` / `.bat` | Builds and runs everything with one command | Yes (or compile by hand with the same flags) |
+| 4 | `raylib.h`, `rlgl.h` | raylib headers (window, render texture, drawing) | Yes |
+| 5 | `libraylib.a` (Windows **or** Linux build, whichever matches) | Prebuilt raylib library | Yes |
+| 6 | `palm_detection_mediapipe_2023feb.onnx` | Palm-detection model (MediaPipe, converted to ONNX) | Yes — **without this there is no hand detection at all**, even if everything else compiles fine |
+| 7 | `ascii_effect.h`, `crt_effect.h`, `opencv_effect.h` | The 4 styles (`ascii`/`matrix` share a header, `crt`, `edges`) | Only if you want `handStyle`/`bgStyle` to be something other than `none` — see note below |
 
-  "cannyLow": 50.0, "cannyHigh": 150.0, "blur": 3,
-  "edgeOnSource": true, "edgeColor": "#RRGGBB",
+### 🎯 About the `.onnx` model — the part that confuses people most
 
-  "contourMinArea": 100.0, "contourThickness": 2, "contourFill": false,
-  "contourColor": "#RRGGBB",
+`palm_detection_mediapipe_2023feb.onnx` **isn't compiled or linked**: it's
+a neural network that OpenCV (`cv::dnn::readNet`) loads *at runtime*, the
+first time the program needs to detect a hand. Because of that:
 
-  "flowStrength": 1.0, "flowArrows": true, "flowArrowStep": 16,
+- It doesn't need to be declared in any `#include` or in the build script.
+- But if the executable can't find it on startup, the app still runs
+  fine — window open, camera working — **it just never detects any
+  hand**, with no visible on-screen error (only a console message:
+  `[touchdesigner] Could not load ...`). It's the easiest failure to
+  mistake for "the code is broken."
+- **Where it has to live:** in the same folder you *run* the already-built
+  binary from (the `cwd` when you run `./touchdesigner_demo` or
+  `touchdesigner_demo.exe`) — not in a subfolder, and not next to the
+  source files if you're going to run the program from somewhere else.
+  Both build scripts (`.sh`/`.bat`) already run the binary from that same
+  folder, so if you dropped the model next to the `.c`/`.h` and used those
+  scripts, it's already in the right place. The `.bat` even warns you if
+  it's missing (`WARNING: palm_detection_mediapipe_2023feb.onnx not found
+  next to this script`); the Linux/macOS script has no such warning, so
+  keep an eye on it yourself there.
+- Internally the code first looks for
+  `./palm_detection_mediapipe_2023feb.onnx`, and if that's not found it
+  falls back to a relative path (`../../assets/cv/...`) that only exists
+  if you're running from **inside the full Bryncraft repo** — it won't
+  exist if you're working from just the flat zip the Extra tab downloads.
+  For that case (99% of the time you compile outside the repo) the model
+  needs to sit right next to the executable.
 
-  "bgHistory": 500, "bgVarThreshold": 16.0,
-  "bgShadows": true, "bgMaskOnly": false,
+### 🎨 About `ascii_effect.h` / `crt_effect.h` / `opencv_effect.h`
 
-  "faceScaleFactor": 1.1, "faceMinNeighbors": 5,
-  "faceMinSizeFraction": 0.1, "faceBoxColor": "#RRGGBB",
-  "faceShowCount": true
-} }
-```
+Unlike the web build (where all three styles are always enabled), in the
+native build these three headers sit behind compile flags
+(`TD_ENABLE_ASCII`, `TD_ENABLE_CRT`, `TD_ENABLE_OPENCV_EDGES`) — if those
+aren't defined, setting `handStyle`/`bgStyle` to `ascii`, `matrix`, `crt`
+or `edges` simply does nothing at runtime (it behaves like `none`), even
+if you had it selected in the app before exporting.
 
-## Building the standalone demo
+- **`touchdesigner_build_and_run.bat` (Windows)** already auto-detects
+  whether these `.h` files are present next to the script (or in
+  `..\ascii`, `..\crt`, `..\opencv`) and defines the matching flag on its
+  own. If you didn't download them, it still builds fine, just without
+  those styles.
+- **`touchdesigner_build_and_run.sh` (Linux/macOS)**, as it stands today,
+  **never defines any of the three flags**, so even if you download all
+  three `.h` files and place them next to the script, `ascii`/`matrix`/
+  `crt`/`edges` won't be enabled in that build until `-DTD_ENABLE_ASCII
+  -DTD_ENABLE_CRT -DTD_ENABLE_OPENCV_EDGES` are added to the script (or
+  passed by hand when compiling `main.c` and `touchdesigner_effect.h`).
+  If you're only using `handStyle`/`bgStyle = none`, this doesn't affect
+  you.
 
-`raylib.h` / `libraylib.a` are one level up, in `native/effects/` (shared
-by the 4 demos). The scripts assume they are run **from this folder**
-(they use `-I..`/`-L..` to find `raylib.h`/`libraylib.a`, and compile
-`main003.c` / `opencv_effect.h`, which sit next to them).
+> **This isn't a one-line `gcc` build.** The
+> `TOUCHDESIGNER_EFFECT_IMPLEMENTATION` section (at the end of
+> `touchdesigner_effect.h`) needs a C++ compiler pointed at the header
+> (`-x c++`) and linking against OpenCV (`core`, `imgproc`, `videoio`,
+> `dnn`, `video` — version **4.7 or newer**, for
+> `cv::dnn::blobFromImageWithParams`). That's why there are build scripts
+> instead of a plain one-liner. `opencv_effect.h` (needed if you use the
+> `edges` style) is also compiled separately, same as in
+> `native/Makefile` (`OPENCV_OBJ`).
 
-```bash
-# Linux/macOS — requires: sudo apt install libopencv-dev (or equivalent)
-./opencv_build_and_run.sh
-```
+---
 
-```bat
-:: Windows — downloads OpenCV-MinGW the first time, then builds with MinGW
-opencv_build_and_run.bat
-```
+## Where the hand detection lives
 
-### What `opencv_build_and_run.sh` does
+**All in one file: `touchdesigner_effect.h`.** OpenCV (`cv::dnn`), no JS
+involved except for the initial ONNX model load
+(`src/utils/palmModelLoader.ts`). The flow:
 
-Four steps, in order:
+1. The camera/video reaches `scene` — in the web build via
+   `js_set_video_frame` (`native/main.c`, fed by
+   `wasmBridge.pushCameraFrame` every rAF); in the native build, via
+   `TD_HandCamera_Open`/`TD_HandCamera_CaptureInto` (OpenCV
+   `cv::VideoCapture`, only compiled outside Emscripten).
+2. `TouchdesignerEffect_Draw()` calls `TD_DetectHands(scene, ...)` every
+   `handDetectSkip` frames: it downscales `scene` (`handProcessScale`),
+   reads it back to the CPU with `LoadImageFromTexture` (same pattern as
+   `RunFaceDetect()` in `opencv_effect.h`) and passes it to
+   `TD_HandTracking_ProcessFrame()` — an SSD palm detector (MP-PalmDet),
+   implemented in the `TOUCHDESIGNER_EFFECT_IMPLEMENTATION` section at the
+   end of this same `touchdesigner_effect.h` (C++, compiled separately
+   with em++/g++, see `TOUCHDESIGNER_OBJ` in `native/Makefile`): up to 2
+   hands with position, palm size, and approximate rotation.
+3. `TD_DetectHands` reads `TD_HandTracking_GetHandCount/GetHand` and fills
+   `TD_g_hands[0..1]` directly — with no external channel in between.
+   This is the **only** path detection should ever run through: the
+   native camera capture should just fill the scene texture, and should
+   never call the detector on its own with the full-resolution frame
+   (that misaligns the scale of `palmSize` against the
+   `handProcessScale` that `TD_DetectHands` uses to normalize it, and
+   ends up inflating the blob size).
+4. `TouchdesignerEffect_Draw` computes `bgScene = TD_ApplyStyle(bgStyle,
+   effScene)` and draws it as the background; it computes `handScene =
+   TD_ApplyStyle(handStyle, effScene)`, and that's the texture that
+   `TD_CaptureLensRegion`/`TD_CaptureBridgeLensRegion` crop to show inside
+   each hand's liquid glass / slime bridge. `TD_ApplyStyle` caches the
+   result per frame (if `handStyle == bgStyle` it won't render the same
+   style twice).
 
-1. `pkg-config --exists opencv4` — bails out early with a clear message if
-   `libopencv-dev` (or the distro's equivalent) isn't installed, instead
-   of failing later with cryptic linker errors.
-2. Compiles `main003.c` (plain C) with `gcc`.
-3. Compiles `opencv_effect.h` (C++) with `g++ -x c++
-   -DOPENCV_EFFECT_IMPLEMENTATION`, using `pkg-config --cflags opencv4`
-   for whatever OpenCV includes the system has installed.
-4. Links both `.o` files with `g++` — `-lraylib` + typical Linux libs
-   (`-lm -lpthread -ldl -lrt -lX11`) plus `pkg-config --libs opencv4` for
-   OpenCV's `.so` files — and removes the intermediate `.o` files.
+`TouchdesignerEffect_SetHandData()` still exists as a manual override for
+when `autoDetectHands` is `false`. The real app never calls it:
+`autoDetectHands` is `true` by default, in both the web build and the
+one exported for compiling.
 
-At the end it runs `./opencv_demo` directly. It's literally the same
-three-line `gcc`/`g++`/`g++` sequence shown further below under "Manual",
-just with the `pkg-config` check up front and without having to type the
-flags by hand every time.
+## Params (`TouchdesignerEffect_SetParams`)
 
-### What `opencv_build_and_run.bat` does
+| Param | What it does |
+|---|---|
+| `handStyle` | `"none"` / `"ascii"` / `"matrix"` / `"crt"` / `"edges"` — style inside the hands' glass/slime |
+| `bgStyle` | Same, but for the camera background |
+| `mirror` | Horizontal mirror before detecting hands (front camera = selfie) |
+| `handReanchorInterval`, `handProcessScale`, `handDetectSkip` | Tune detection cost/latency |
+| `glassColor`, `glassEnabled`, `glassSize` | Liquid glass over each hand |
+| `slimeEnabled`, `slimeDistance` | Slime bridge between the two hands |
+| `showHandCount` | Overlay showing the number of detected hands |
+| `showCameraBg`, `bgFallbackColor` | Background: camera (with the chosen `bgStyle`) or a flat color |
 
-On Windows there's no `apt install libopencv-dev` equivalent, and OpenCV
-usually doesn't come prebuilt for MinGW, so the script first makes sure a
-usable copy exists before compiling anything:
-
-1. If `opencv-mingw\include\opencv2\core.hpp` already exists (from a
-   previous run), it jumps straight to compiling — it doesn't download
-   anything again.
-2. If it doesn't exist, it clones (sparse checkout, only the needed
-   folder) the `puccj/opencv-mingwx64` repo with the prebuilt OpenCV
-   4.8.0 binaries for MinGW-w64, and moves that folder to
-   `opencv-mingw\` next to the script.
-3. Builds `INC`/`LIBS` pointing both at `raylib` (`-I.. -L..`, same as on
-   Linux) and at `opencv-mingw\include` / `opencv-mingw\x64\mingw\lib`,
-   and adds `opencv-mingw\x64\mingw\bin` to the session `PATH` so
-   OpenCV's `.dll` files can be found at runtime.
-4. Compiles and links with `gcc`/`g++` the same way as on Linux, but
-   linking `-lgdi32 -lwinmm` (instead of `-lpthread -ldl -lrt -lX11`) and
-   the specific OpenCV libs this effect uses (`opencv_objdetect480`,
-   `opencv_video480`, `opencv_videoio480`, `opencv_imgproc480`,
-   `opencv_core480`).
-5. Removes the intermediate `.o` files, runs `opencv_demo.exe`, and
-   leaves the console open with `pause` at the end (so errors can be read
-   if something fails).
-
-`opencv-mingw\` stays cached next to the script after the first run —
-deleting it forces the script to download it again next time.
-
-Manual, equivalent to the Linux/macOS script:
-
-```bash
-gcc  -c main003.c -o main003.o -I..
-g++  -DOPENCV_EFFECT_IMPLEMENTATION -x c++ -c opencv_effect.h -o opencv_effect.o -I.. -std=c++20 $(pkg-config --cflags opencv4)
-g++  main003.o opencv_effect.o -o opencv_demo -L.. -lraylib -lm -lpthread -ldl -lrt -lX11 $(pkg-config --libs opencv4)
-```
-
-## Full build (WASM, inside Bryncraft)
-
-This is built as part of the `native/` build (`make` from `native/`, see
-`native/README.md`). The WASM build uses a trimmed-down OpenCV (only
-core/imgproc/video/objdetect — no `videoio`, there's no camera on the
-Emscripten side); real camera capture (`OcvCamera_*`) only exists outside
-`__EMSCRIPTEN__`, i.e. only in this standalone demo.
+Part of [Bryncraft](https://bryncraft.online/) — created by Victor Berdugo.

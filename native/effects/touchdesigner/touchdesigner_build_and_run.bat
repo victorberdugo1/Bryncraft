@@ -18,25 +18,59 @@ rmdir /s /q opencv-mingw-src
 :SETVARS
 if exist "raylib.h" (set RAYLIB_INC=.) else (set RAYLIB_INC=..)
 if exist "libraylib.a" (set RAYLIB_LIB=.) else (set RAYLIB_LIB=..)
-if exist "ascii_effect.h" (set ASCII_INC=.) else (set ASCII_INC=..\ascii)
-if exist "crt_effect.h" (set CRT_INC=.) else (set CRT_INC=..\crt)
-if exist "opencv_effect.h" (set OCV_HDR_INC=.) else (set OCV_HDR_INC=..\opencv)
 
 if not exist "palm_detection_mediapipe_2023feb.onnx" (echo WARNING: palm_detection_mediapipe_2023feb.onnx not found next to this script -- hand detection will fail. Download it from the Extra tab.)
 
 set OPENCV_PATH=opencv-mingw
 set PATH=%CD%\!RAYLIB_LIB!;%CD%\!OPENCV_PATH!\x64\mingw\bin;%PATH%
-set INC=-I"!RAYLIB_INC!" -I"!ASCII_INC!" -I"!CRT_INC!" -I"!OCV_HDR_INC!" -I"!OPENCV_PATH!\include"
-set LIBS=-L"!RAYLIB_LIB!" -L"!OPENCV_PATH!\x64\mingw\lib" -lraylib -lm -lgdi32 -lwinmm -lopencv_dnn480 -lopencv_video480 -lopencv_videoio480 -lopencv_imgproc480 -lopencv_core480
+
+set EXTRA_DEFS=
+set EXTRA_INC=
+set EXTRA_LIBS=
+set EXTRA_OBJS=
+
+if exist "ascii_effect.h" (set ASCII_INC=.) else if exist "..\ascii\ascii_effect.h" (set ASCII_INC=..\ascii)
+if defined ASCII_INC (
+    echo [ascii] enabled -- ascii_effect.h found in "!ASCII_INC!"
+    set EXTRA_DEFS=!EXTRA_DEFS! -DTD_ENABLE_ASCII
+    set EXTRA_INC=!EXTRA_INC! -I"!ASCII_INC!"
+) else (
+    echo [ascii] disabled -- ascii_effect.h not found next to this script or in ..\ascii
+)
+
+if exist "crt_effect.h" (set CRT_INC=.) else if exist "..\crt\crt_effect.h" (set CRT_INC=..\crt)
+if defined CRT_INC (
+    echo [crt] enabled -- crt_effect.h found in "!CRT_INC!"
+    set EXTRA_DEFS=!EXTRA_DEFS! -DTD_ENABLE_CRT
+    set EXTRA_INC=!EXTRA_INC! -I"!CRT_INC!"
+) else (
+    echo [crt] disabled -- crt_effect.h not found next to this script or in ..\crt
+)
+
+if exist "opencv_effect.h" (set OCV_HDR_INC=.) else if exist "..\opencv\opencv_effect.h" (set OCV_HDR_INC=..\opencv)
+if defined OCV_HDR_INC (
+    echo [edges] enabled -- opencv_effect.h found in "!OCV_HDR_INC!"
+    set EXTRA_DEFS=!EXTRA_DEFS! -DTD_ENABLE_OPENCV_EDGES
+    set EXTRA_INC=!EXTRA_INC! -I"!OCV_HDR_INC!"
+    set EXTRA_LIBS=!EXTRA_LIBS! -lopencv_objdetect480
+    set EXTRA_OBJS=!EXTRA_OBJS! opencv_effect.o
+) else (
+    echo [edges] disabled -- opencv_effect.h not found next to this script or in ..\opencv
+)
+
+set INC=-I"!RAYLIB_INC!" -I"!OPENCV_PATH!\include" !EXTRA_INC!
+set LIBS=-L"!RAYLIB_LIB!" -L"!OPENCV_PATH!\x64\mingw\lib" -lraylib -lm -lgdi32 -lwinmm -lopencv_dnn480 -lopencv_video480 -lopencv_videoio480 -lopencv_imgproc480 -lopencv_core480 !EXTRA_LIBS!
 
 if not exist "!RAYLIB_INC!\raylib.h" (echo raylib.h not found in "." or ".." & pause & exit /b 1)
 if not exist "!RAYLIB_LIB!\libraylib.a" (echo libraylib.a not found in "." or ".." & pause & exit /b 1)
 
-gcc -c main.c -o main.o %INC% || (pause & exit /b 1)
-g++ -DOPENCV_EFFECT_IMPLEMENTATION -x c++ -c opencv_effect.h -o opencv_effect.o %INC% -std=c++20 || (pause & exit /b 1)
-g++ -DTOUCHDESIGNER_EFFECT_IMPLEMENTATION -x c++ -c touchdesigner_effect.h -o touchdesigner_effect.o %INC% -std=c++20 || (pause & exit /b 1)
-g++ main.o opencv_effect.o touchdesigner_effect.o -o touchdesigner_demo.exe %LIBS% || (pause & exit /b 1)
-del main.o opencv_effect.o touchdesigner_effect.o 2>nul
+gcc -c main004.c -o main004.o %INC% !EXTRA_DEFS! || (pause & exit /b 1)
+g++ -DTOUCHDESIGNER_EFFECT_IMPLEMENTATION -DTOUCHDESIGNER_EFFECT_OBJ_BUILD -x c++ -c touchdesigner_effect.h -o touchdesigner_effect.o %INC% -std=c++20 || (pause & exit /b 1)
+if defined OCV_HDR_INC (
+    g++ -DOPENCV_EFFECT_IMPLEMENTATION -x c++ -c "!OCV_HDR_INC!\opencv_effect.h" -o opencv_effect.o %INC% -std=c++20 || (pause & exit /b 1)
+)
+g++ main004.o touchdesigner_effect.o !EXTRA_OBJS! -o touchdesigner_demo.exe %LIBS% || (pause & exit /b 1)
+del main004.o touchdesigner_effect.o opencv_effect.o 2>nul
 
 touchdesigner_demo.exe
 pause

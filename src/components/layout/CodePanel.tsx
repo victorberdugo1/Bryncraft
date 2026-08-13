@@ -9,8 +9,8 @@ import {
   type ExtraAsset,
 } from "@/codegen/generateRaylibCode";
 import { Button } from "@/components/ui/button";
-import { Copy, Download } from "lucide-react";
-import { useMemo } from "react";
+import { Copy, Download, Loader2 } from "lucide-react";
+import { useMemo, useState } from "react";
 import { marked } from "marked";
 import { usePanelTransparentBg } from "@/hooks/usePanelTransparency";
 import { cn } from "@/lib/utils";
@@ -33,6 +33,63 @@ function downloadFromUrl(filename: string, url: string) {
   a.href = url;
   a.download = filename;
   a.click();
+}
+
+interface JSZipInstance {
+  file(name: string, data: string | ArrayBuffer): void;
+  generateAsync(options: { type: "blob" }): Promise<Blob>;
+}
+interface JSZipCtor {
+  new (): JSZipInstance;
+}
+
+let jsZipPromise: Promise<JSZipCtor> | null = null;
+function loadJSZip(): Promise<JSZipCtor> {
+  if (jsZipPromise) return jsZipPromise;
+  jsZipPromise = new Promise((resolve, reject) => {
+    const w = window as unknown as { JSZip?: JSZipCtor };
+    if (w.JSZip) {
+      resolve(w.JSZip);
+      return;
+    }
+    const script = document.createElement("script");
+    script.src = "https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js";
+    script.onload = () => resolve((window as unknown as { JSZip: JSZipCtor }).JSZip);
+    script.onerror = () => reject(new Error("No se pudo cargar JSZip"));
+    document.head.appendChild(script);
+  });
+  return jsZipPromise;
+}
+
+async function downloadProjectZip(
+  effect: string,
+  mainFilename: string,
+  main: string,
+  headerFilename: string,
+  header: string,
+  readme: string,
+  extras: ExtraAsset[],
+) {
+  const JSZip = await loadJSZip();
+  const zip = new JSZip();
+  zip.file(mainFilename, main);
+  if (headerFilename !== mainFilename) zip.file(headerFilename, header);
+  zip.file(`${effect}-README.md`, readme);
+  for (const extra of extras) {
+    if (extra.kind === "text") {
+      zip.file(extra.filename, extra.content);
+    } else {
+      const res = await fetch(extra.url);
+      zip.file(extra.filename, await res.arrayBuffer());
+    }
+  }
+  const blob = await zip.generateAsync({ type: "blob" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${effect}.zip`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 function CodeBlock({ code, filename }: { code: string; filename: string }) {
@@ -139,7 +196,7 @@ export function CodePanel() {
   const code = useMemo(() => generateEffectHeader(activeEffect, params), [activeEffect, params]);
   const main = useMemo(() => generateMainTab(activeEffect), [activeEffect]);
   const readme = useMemo(() => generateReadme(activeEffect), [activeEffect]);
-  const extras = useMemo(() => getExtras(activeEffect), [activeEffect]);
+  const extras = useMemo(() => getExtras(activeEffect, params), [activeEffect, params]);
 
   const activeCode = codeTab === "main" ? main : code;
 
@@ -154,14 +211,46 @@ export function CodePanel() {
     }
   }, [codeTab, activeEffect]);
 
+  const [zipping, setZipping] = useState(false);
+  const [zipError, setZipError] = useState<string | null>(null);
+
+  const handleDownloadAll = async () => {
+    setZipping(true);
+    setZipError(null);
+    try {
+      await downloadProjectZip(
+        activeEffect,
+        getMainFilename(activeEffect),
+        main,
+        `${activeEffect}_effect.h`,
+        code,
+        readme,
+        extras,
+      );
+    } catch (err) {
+      setZipError(err instanceof Error ? err.message : "Error al generar el .zip");
+    } finally {
+      setZipping(false);
+    }
+  };
+
   return (
     <div className={cn("flex h-full flex-col transition-colors duration-300", transparent ? "bg-transparent" : "bg-panel")}>
       <Tabs value={codeTab} onValueChange={(v) => setCodeTab(v as typeof codeTab)} className="flex h-full min-h-0 flex-col">
-        <TabsList className="shrink-0">
-          <TabsTrigger value="code">Code</TabsTrigger>
-          <TabsTrigger value="main">Main</TabsTrigger>
-          <TabsTrigger value="extra">Extra</TabsTrigger>
-          <TabsTrigger value="readme">README</TabsTrigger>
+        <TabsList className="shrink-0 justify-between">
+          <div className="flex">
+            <TabsTrigger value="code">Code</TabsTrigger>
+            <TabsTrigger value="main">Main</TabsTrigger>
+            <TabsTrigger value="extra">Extra</TabsTrigger>
+            <TabsTrigger value="readme">README</TabsTrigger>
+          </div>
+          <div className="flex items-center gap-2 pr-1">
+            {zipError && <span className="text-[10.5px] text-destructive">{zipError}</span>}
+            <Button size="sm" variant="outline" onClick={handleDownloadAll} disabled={zipping} className="h-7 gap-1.5 text-xs">
+              {zipping ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
+              Download all (.zip)
+            </Button>
+          </div>
         </TabsList>
         <div className="mt-0 flex min-h-0 flex-1 flex-col">
           {codeTab === "extra" ? (

@@ -1,4 +1,6 @@
 // main003.c — minimal example: OpenCV Vision (needs a C++ link step, see README.md)
+//
+// Part of Bryncraft (https://bryncraft.online/) — created by Victor Berdugo
 
 #include "raylib.h"
 #include "opencv_effect.h"

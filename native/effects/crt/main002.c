@@ -1,7 +1,7 @@
 // main002.c — minimal standalone example: CRT
 // Self-contained folder: crt_effect.h + main002.c. raylib.h / libraylib.a
 //
-// gcc -o crt_demo.exe main002.c -I.. -L.. -lraylib -lgdi32 -lwinmm    (Windows)
+// gcc main002.c -o crt_demo.exe -I. -L. -lraylib -lgdi32 -lwinmm    (Windows)
 // gcc main002.c -o crt_demo -I. -L. -lraylib -lm -lpthread -ldl -lrt -lX11  (Linux)
 //
 // Part of Bryncraft (https://bryncraft.online/) — created by Victor Berdugo

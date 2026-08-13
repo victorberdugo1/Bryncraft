@@ -12,6 +12,9 @@ import {
 import headerRaw from "../../native/effects/crt/crt_effect.h?raw";
 import mainRaw from "../../native/effects/crt/main002.c?raw";
 import readmeRaw from "../../native/effects/crt/README.md?raw";
+import raylibHeaderUrl from "../../native/effects/raylib.h?url";
+import libraylibWinUrl from "../../native/effects/win/libraylib.a?url";
+import libraylibLnxUrl from "../../native/effects/lnx/libraylib.a?url";
 
 // --- 1. Definición de parámetros (Inspector) --------------------------------
 
@@ -97,6 +100,9 @@ const codegen: EffectCodegenModule = {
       kind: "text",
       content: extractCString(headerRaw, "CRT_FS_SOURCE"),
     },
+    { filename: "raylib.h", label: "raylib.h (compartido por las 4 demos standalone)", kind: "binary-url", url: raylibHeaderUrl },
+    { filename: "libraylib.a", label: "libraylib.a — Windows (MinGW)", kind: "binary-url", url: libraylibWinUrl },
+    { filename: "libraylib.a", label: "libraylib.a — Linux", kind: "binary-url", url: libraylibLnxUrl },
   ],
 };
 

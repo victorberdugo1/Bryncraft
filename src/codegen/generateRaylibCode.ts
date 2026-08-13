@@ -32,9 +32,11 @@ export function generateMainTab(effect: EffectId): string {
 /** Archivos extra de cada efecto — lo que sea que ese efecto necesite además
  * de su header/main, y que no es código C generado por el Inspector: fuente,
  * scripts de build, modelos... Array vacío si el efecto no tiene ninguno
- * (ej. particles). */
-export function getExtras(effect: EffectId): ExtraAsset[] {
-  return CODEGEN_MODULES[effect].extras;
+ * (ej. particles). Algunos efectos (touchdesigner) devuelven un set distinto
+ * según los params actuales — por eso siempre se le pasan acá. */
+export function getExtras(effect: EffectId, params: EffectParams): ExtraAsset[] {
+  const extras = CODEGEN_MODULES[effect].extras;
+  return typeof extras === "function" ? extras(params) : extras;
 }
 
 /** README tab: el README.md real de native/effects/<efecto>/, tal cual está

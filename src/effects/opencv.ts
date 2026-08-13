@@ -16,6 +16,9 @@ import readmeRaw from "../../native/effects/opencv/README.md?raw";
 import buildShRaw from "../../native/effects/opencv/opencv_build_and_run.sh?raw";
 import buildBatRaw from "../../native/effects/opencv/opencv_build_and_run.bat?raw";
 import haarcascadeUrl from "../../native/assets/cv/haarcascade_frontalface_default.xml?url";
+import raylibHeaderUrl from "../../native/effects/raylib.h?url";
+import libraylibWinUrl from "../../native/effects/win/libraylib.a?url";
+import libraylibLnxUrl from "../../native/effects/lnx/libraylib.a?url";
 
 // --- 1. Definición de parámetros (Inspector) --------------------------------
 
@@ -112,6 +115,9 @@ const codegen: EffectCodegenModule = {
     { filename: "opencv_build_and_run.sh", label: "Build script (Linux/macOS)", kind: "text", content: buildShRaw },
     { filename: "opencv_build_and_run.bat", label: "Build script (Windows / MinGW)", kind: "text", content: buildBatRaw },
     { filename: "haarcascade_frontalface_default.xml", label: "Modelo Haar Cascade (detección de rostros)", kind: "binary-url", url: haarcascadeUrl },
+    { filename: "raylib.h", label: "raylib.h (compartido por las 4 demos standalone)", kind: "binary-url", url: raylibHeaderUrl },
+    { filename: "libraylib.a", label: "libraylib.a — Windows (MinGW)", kind: "binary-url", url: libraylibWinUrl },
+    { filename: "libraylib.a", label: "libraylib.a — Linux", kind: "binary-url", url: libraylibLnxUrl },
   ],
 };
 

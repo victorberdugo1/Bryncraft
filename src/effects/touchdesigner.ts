@@ -5,16 +5,21 @@ import {
   type EffectCodegenModule,
   type EffectParams,
   type EffectModule,
+  type ExtraAsset,
   type ThumbnailDrawFn,
 } from "./shared";
 
 import headerRaw from "../../native/effects/touchdesigner/touchdesigner_effect.h?raw";
-import mainRaw from "../../native/effects/touchdesigner/main.c?raw";
+import mainRaw from "../../native/effects/touchdesigner/main004.c?raw";
 import readmeRaw from "../../native/effects/touchdesigner/README.md?raw";
 
 import buildShRaw from "../../native/effects/touchdesigner/touchdesigner_build_and_run.sh?raw";
 import buildBatRaw from "../../native/effects/touchdesigner/touchdesigner_build_and_run.bat?raw";
 import palmModelUrl from "../../native/assets/cv/palm_detection_mediapipe_2023feb.onnx?url";
+import raylibHeaderUrl from "../../native/effects/raylib.h?url";
+import rlglHeaderUrl from "../../native/effects/rlgl.h?url";
+import libraylibWinUrl from "../../native/effects/win/libraylib.a?url";
+import libraylibLnxUrl from "../../native/effects/lnx/libraylib.a?url";
 
 import asciiHeaderRaw from "../../native/effects/ascii/ascii_effect.h?raw";
 import crtHeaderRaw from "../../native/effects/crt/crt_effect.h?raw";
@@ -142,19 +147,40 @@ const codegen: EffectCodegenModule = {
   readmeRaw,
   paramsRegex: /static TD_Params TD_g_params = \{[\s\S]*?\};\r?\n/,
   buildParamsBlock,
-  extras: [
-    { filename: "touchdesigner_build_and_run.sh", label: "Build script (Linux/macOS)", kind: "text", content: buildShRaw },
-    { filename: "touchdesigner_build_and_run.bat", label: "Build script (Windows / MinGW)", kind: "text", content: buildBatRaw },
-    {
-      filename: "palm_detection_mediapipe_2023feb.onnx",
-      label: "Modelo ONNX (detección de palma, MediaPipe)",
-      kind: "binary-url",
-      url: palmModelUrl,
-    },
-    { filename: "ascii_effect.h", label: "Estilo ASCII / Matrix (para Hand/Background Effect Style)", kind: "text", content: asciiHeaderRaw },
-    { filename: "crt_effect.h", label: "Estilo CRT (para Hand/Background Effect Style)", kind: "text", content: crtHeaderRaw },
-    { filename: "opencv_effect.h", label: "Estilo Edges (para Hand/Background Effect Style)", kind: "text", content: opencvHeaderRaw },
-  ],
+  extras: (params: EffectParams): ExtraAsset[] => {
+    const handStyle = String(params.handStyle ?? "none");
+    const bgStyle = String(params.bgStyle ?? "none");
+    const usesAscii = handStyle === "ascii" || handStyle === "matrix" || bgStyle === "ascii" || bgStyle === "matrix";
+    const usesCrt = handStyle === "crt" || bgStyle === "crt";
+    const usesEdges = handStyle === "edges" || bgStyle === "edges";
+
+    const styleExtras: ExtraAsset[] = [];
+    if (usesAscii) {
+      styleExtras.push({ filename: "ascii_effect.h", label: "Requerido por handStyle/bgStyle = ascii/matrix", kind: "text", content: asciiHeaderRaw });
+    }
+    if (usesCrt) {
+      styleExtras.push({ filename: "crt_effect.h", label: "Requerido por handStyle/bgStyle = crt", kind: "text", content: crtHeaderRaw });
+    }
+    if (usesEdges) {
+      styleExtras.push({ filename: "opencv_effect.h", label: "Requerido por handStyle/bgStyle = edges", kind: "text", content: opencvHeaderRaw });
+    }
+
+    return [
+      { filename: "touchdesigner_build_and_run.sh", label: "Build script (Linux/macOS)", kind: "text", content: buildShRaw },
+      { filename: "touchdesigner_build_and_run.bat", label: "Build script (Windows / MinGW)", kind: "text", content: buildBatRaw },
+      {
+        filename: "palm_detection_mediapipe_2023feb.onnx",
+        label: "Modelo ONNX (detección de palma, MediaPipe)",
+        kind: "binary-url",
+        url: palmModelUrl,
+      },
+      ...styleExtras,
+      { filename: "raylib.h", label: "raylib.h (compartido por las 4 demos standalone)", kind: "binary-url", url: raylibHeaderUrl },
+      { filename: "rlgl.h", label: "rlgl.h (requerido por touchdesigner_effect.h)", kind: "binary-url", url: rlglHeaderUrl },
+      { filename: "libraylib.a", label: "libraylib.a — Windows (MinGW)", kind: "binary-url", url: libraylibWinUrl },
+      { filename: "libraylib.a", label: "libraylib.a — Linux", kind: "binary-url", url: libraylibLnxUrl },
+    ];
+  },
 };
 
 // --- 3. Thumbnail --------------------------------------------------------------

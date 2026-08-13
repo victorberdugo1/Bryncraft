@@ -70,21 +70,39 @@ void TD_HandCamera_Close(void);
 }
 #endif
 
+#ifdef __EMSCRIPTEN__
+#ifndef TD_ENABLE_ASCII
+#define TD_ENABLE_ASCII
+#endif
+#ifndef TD_ENABLE_CRT
+#define TD_ENABLE_CRT
+#endif
+#ifndef TD_ENABLE_OPENCV_EDGES
+#define TD_ENABLE_OPENCV_EDGES
+#endif
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
+#ifdef TD_ENABLE_ASCII
 void AsciiEffect_Draw(RenderTexture2D scene, int screenW, int screenH);
 void AsciiEffect_Prepare(RenderTexture2D scene, int screenW, int screenH);
 void AsciiEffect_DrawFinal(int screenW, int screenH);
 void AsciiEffect_SetMode(int mode);
+#endif
+#ifdef TD_ENABLE_CRT
 void CrtEffect_Draw(RenderTexture2D scene, int screenW, int screenH);
 void CrtEffect_Prepare(RenderTexture2D scene, int screenW, int screenH);
 void CrtEffect_DrawFinal(RenderTexture2D scene, int screenW, int screenH);
+#endif
+#ifdef TD_ENABLE_OPENCV_EDGES
 void OpencvEffect_Draw(RenderTexture2D scene, int screenW, int screenH);
 void OpencvEffect_Prepare(RenderTexture2D scene, int screenW, int screenH);
 void OpencvEffect_DrawFinal(int screenW, int screenH);
 void OpencvEffect_SetEdgesMode(void);
+#endif
 
 #ifdef __cplusplus
 }
@@ -167,6 +185,7 @@ static RenderTexture2D TD_ApplyStyle(TD_RenderStyle style, RenderTexture2D scene
     if (TD_g_styleComputedThisFrame[style]) return TD_g_styleTarget[style];
 
     switch (style) {
+#ifdef TD_ENABLE_ASCII
         case TD_STYLE_ASCII:
             AsciiEffect_SetMode(0);
             AsciiEffect_Prepare(scene, w, h);
@@ -175,13 +194,18 @@ static RenderTexture2D TD_ApplyStyle(TD_RenderStyle style, RenderTexture2D scene
             AsciiEffect_SetMode(1);
             AsciiEffect_Prepare(scene, w, h);
             break;
+#endif
+#ifdef TD_ENABLE_OPENCV_EDGES
         case TD_STYLE_EDGES:
             OpencvEffect_SetEdgesMode();
             OpencvEffect_Prepare(scene, w, h);
             break;
+#endif
+#ifdef TD_ENABLE_CRT
         case TD_STYLE_CRT:
             CrtEffect_Prepare(scene, w, h);
             break;
+#endif
         default:
             break;
     }
@@ -189,16 +213,22 @@ static RenderTexture2D TD_ApplyStyle(TD_RenderStyle style, RenderTexture2D scene
     BeginTextureMode(TD_g_styleTarget[style]);
         ClearBackground(BLACK);
         switch (style) {
+#ifdef TD_ENABLE_ASCII
             case TD_STYLE_ASCII:
             case TD_STYLE_MATRIX:
                 AsciiEffect_DrawFinal(w, h);
                 break;
+#endif
+#ifdef TD_ENABLE_CRT
             case TD_STYLE_CRT:
                 CrtEffect_DrawFinal(scene, w, h);
                 break;
+#endif
+#ifdef TD_ENABLE_OPENCV_EDGES
             case TD_STYLE_EDGES:
                 OpencvEffect_DrawFinal(w, h);
                 break;
+#endif
             default:
                 break;
         }
@@ -1198,6 +1228,9 @@ static size_t g_palmModelBufferSize = 0;
 
 #ifndef __EMSCRIPTEN__
 static cv::VideoCapture g_camera;
+static Texture2D g_cameraTexture;
+static bool g_cameraTextureReady = false;
+static int  g_cameraTexW = 0, g_cameraTexH = 0;
 #endif
 
 static std::vector<cv::Point2f> BuildPalmAnchors(int inputSize) {
@@ -1556,17 +1589,57 @@ void TD_HandCamera_CaptureInto(RenderTexture2D target) {
         cv::flip(rgba, rgba, 1);
     }
 
-    RunPalmDetect(rgba);
+    // NOTA: la detección de manos NO se corre acá. Antes esta línea llamaba
+    // a RunPalmDetect(rgba) sobre el frame a resolución COMPLETA (screenW x
+    // screenH, p.ej. 1280x720), pisando el mismo g_detectedHands que llena
+    // TD_DetectHands()/TD_HandTracking_ProcessFrame() con el frame reducido
+    // por handProcessScale (p.ej. ~205x115). TD_DetectHands normaliza
+    // palmSize dividiendo por maxWork = max(workW, workH) — el tamaño del
+    // frame chico — así que si palmSize venía del frame grande, el radio
+    // resultante (size * glassSize * screenW * 0.5) salía inflado. En el
+    // build web esto no pasa porque no existe este capture path: la única
+    // detección corre siempre a través de TD_DetectHands. Se deja un único
+    // pipeline de detección (el de TD_DetectHands) para que binario y web
+    // midan la mano en la misma escala.
 
-    if (rgba.isContinuous()) {
-        UpdateTexture(target.texture, rgba.data);
+    if (!rgba.isContinuous()) rgba = rgba.clone();
+
+    if (!g_cameraTextureReady || g_cameraTexW != rgba.cols || g_cameraTexH != rgba.rows) {
+        if (g_cameraTextureReady) UnloadTexture(g_cameraTexture);
+        Image img = {
+            .data = rgba.data,
+            .width = rgba.cols,
+            .height = rgba.rows,
+            .mipmaps = 1,
+            .format = PIXELFORMAT_UNCOMPRESSED_R8G8B8A8
+        };
+        g_cameraTexture = LoadTextureFromImage(img);
+        g_cameraTexW = rgba.cols;
+        g_cameraTexH = rgba.rows;
+        g_cameraTextureReady = true;
+    } else {
+        UpdateTexture(g_cameraTexture, rgba.data);
     }
+
+    BeginTextureMode(target);
+        ClearBackground(BLACK);
+        DrawTexturePro(g_cameraTexture,
+            (Rectangle){ 0, 0, (float)g_cameraTexture.width, (float)g_cameraTexture.height },
+            (Rectangle){ 0, 0, (float)target.texture.width, (float)target.texture.height },
+            (Vector2){ 0, 0 }, 0.0f, WHITE);
+    EndTextureMode();
 }
 
 void TD_HandCamera_Close(void) {
     if (g_camera.isOpened()) {
         g_camera.release();
     }
+    if (g_cameraTextureReady) {
+        UnloadTexture(g_cameraTexture);
+        g_cameraTextureReady = false;
+    }
+    g_cameraTexW = 0;
+    g_cameraTexH = 0;
 }
 #endif
 

@@ -12,6 +12,9 @@ import {
 import headerRaw from "../../native/effects/particles/particles_effect.h?raw";
 import mainRaw from "../../native/effects/particles/main001.c?raw";
 import readmeRaw from "../../native/effects/particles/README.md?raw";
+import raylibHeaderUrl from "../../native/effects/raylib.h?url";
+import libraylibWinUrl from "../../native/effects/win/libraylib.a?url";
+import libraylibLnxUrl from "../../native/effects/lnx/libraylib.a?url";
 
 // --- 1. Definición de parámetros (Inspector) --------------------------------
 
@@ -78,7 +81,11 @@ const codegen: EffectCodegenModule = {
   readmeRaw,
   paramsRegex: /static PART_ParticleParams PART_g_params = \{[\s\S]*?\};\r?\n/,
   buildParamsBlock,
-  extras: [],
+  extras: [
+    { filename: "raylib.h", label: "raylib.h (compartido por las 4 demos standalone)", kind: "binary-url", url: raylibHeaderUrl },
+    { filename: "libraylib.a", label: "libraylib.a — Windows (MinGW)", kind: "binary-url", url: libraylibWinUrl },
+    { filename: "libraylib.a", label: "libraylib.a — Linux", kind: "binary-url", url: libraylibLnxUrl },
+  ],
 };
 
 // --- 3. Thumbnail --------------------------------------------------------------
