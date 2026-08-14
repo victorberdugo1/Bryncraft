@@ -11,29 +11,24 @@ import { useAppStore } from "@/store/useAppStore";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { clamp } from "@/lib/utils";
 
+const LEFT_WIDTH_MIN = 180;
+const RIGHT_WIDTH_MIN = 220;
+const CODE_HEIGHT_MIN = 120;
+
 export function AppShell() {
-  // Below this width we switch to MobileDockShell (phones and tablets): a
-  // full-screen canvas with panels tucked behind edge tabs. At/above it we
-  // keep the classic resizable multi-pane desktop layout. Deciding this in
-  // JS — instead of rendering both layouts and CSS-hiding one — means
-  // CenterViewport (and therefore ViewportCanvas, its <canvas>, and its
-  // WASM/mock renderer attachment) only ever mounts once.
   const isDesktop = useMediaQuery("(min-width: 1024px)");
 
-  const [leftWidth, setLeftWidth] = useState(224);
-  const [rightWidth, setRightWidth] = useState(288);
-  const [codeHeight, setCodeHeight] = useState(220);
+  const [leftWidth, setLeftWidth] = useState(LEFT_WIDTH_MIN);
+  const [rightWidth, setRightWidth] = useState(RIGHT_WIDTH_MIN);
+  const [codeHeight, setCodeHeight] = useState(CODE_HEIGHT_MIN);
 
   const leftSidebarOpen = useAppStore((s) => s.leftSidebarOpen);
   const rightPanelOpen = useAppStore((s) => s.rightPanelOpen);
 
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden font-ui text-[13px]">
-      {/* Hidden on mobile/tablet on purpose: the whole screen is the canvas
-          there, panels live behind the edge tabs in MobileDockShell. */}
       {isDesktop && <TopBar />}
 
-      {/* Desktop / large tablet docking layout */}
       {isDesktop && (
         <div className="flex min-h-0 flex-1">
           {leftSidebarOpen && (
@@ -41,7 +36,10 @@ export function AppShell() {
               <div style={{ width: leftWidth }} className="shrink-0">
                 <LeftSidebar />
               </div>
-              <ResizeHandle orientation="vertical" onResize={(d) => setLeftWidth((w) => clamp(w + d, 180, 420))} />
+              <ResizeHandle
+                orientation="vertical"
+                onResize={(d) => setLeftWidth((w) => clamp(w + d, LEFT_WIDTH_MIN, 420))}
+              />
             </>
           )}
 
@@ -51,7 +49,7 @@ export function AppShell() {
             </div>
             <ResizeHandle
               orientation="horizontal"
-              onResize={(d) => setCodeHeight((h) => clamp(h - d, 120, 480))}
+              onResize={(d) => setCodeHeight((h) => clamp(h - d, CODE_HEIGHT_MIN, 480))}
             />
             <div style={{ height: codeHeight }} className="shrink-0 border-t border-border">
               <CodePanel />
@@ -61,7 +59,10 @@ export function AppShell() {
 
           {rightPanelOpen && (
             <>
-              <ResizeHandle orientation="vertical" onResize={(d) => setRightWidth((w) => clamp(w - d, 220, 480))} />
+              <ResizeHandle
+                orientation="vertical"
+                onResize={(d) => setRightWidth((w) => clamp(w - d, RIGHT_WIDTH_MIN, 480))}
+              />
               <div style={{ width: rightWidth }} className="shrink-0">
                 <RightInspector />
               </div>
@@ -70,7 +71,6 @@ export function AppShell() {
         </div>
       )}
 
-      {/* Mobile / tablet: full-screen canvas with edge-docked panels */}
       {!isDesktop && <MobileDockShell />}
     </div>
   );

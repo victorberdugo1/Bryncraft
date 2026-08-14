@@ -1,0 +1,546 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+
+  <defs>
+
+    <!-- Blue kiwi flesh -->
+    <radialGradient id="kiwi" cx="42%" cy="38%" r="65%">
+      <stop offset="0%" stop-color="#8bd8ff"/>
+      <stop offset="22%" stop-color="#3298ed"/>
+      <stop offset="55%" stop-color="#0967c9"/>
+      <stop offset="82%" stop-color="#03489d"/>
+      <stop offset="100%" stop-color="#012b69"/>
+    </radialGradient>
+
+    <!-- Luminous center -->
+    <radialGradient id="heart">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="35%" stop-color="#e9fbff"/>
+      <stop offset="75%" stop-color="#a7e7ff"/>
+      <stop offset="100%" stop-color="#55b8ed"/>
+    </radialGradient>
+
+    <!-- Blue glow -->
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="10" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <!-- Sparkle glow -->
+    <filter id="sparkle">
+      <feGaussianBlur stdDeviation="2"/>
+    </filter>
+
+    <clipPath id="kiwiClip">
+      <circle cx="256" cy="256" r="207"/>
+    </clipPath>
+
+  </defs>
+
+
+  <!-- ====================================== -->
+  <!--              MAGICAL AURA              -->
+  <!-- ====================================== -->
+
+  <circle
+    cx="256"
+    cy="256"
+    r="220"
+    fill="#168cff"
+    opacity=".16"
+    filter="url(#glow)"
+  />
+
+
+  <!-- ====================================== -->
+  <!--                  KIWI                  -->
+  <!-- ====================================== -->
+
+  <circle
+    cx="256"
+    cy="256"
+    r="207"
+    fill="url(#kiwi)"
+    stroke="#001e55"
+    stroke-width="7"
+  />
+
+
+  <g clip-path="url(#kiwiClip)">
+
+
+    <!-- ================================== -->
+    <!--           RADIAL FLESH             -->
+    <!-- ================================== -->
+
+    <g
+      stroke="#8edcff"
+      stroke-width="4"
+      opacity=".20"
+      stroke-linecap="round"
+    >
+
+      <line x1="256" y1="256" x2="256" y2="49"/>
+      <line x1="256" y1="256" x2="310" y2="56"/>
+      <line x1="256" y1="256" x2="360" y2="76"/>
+      <line x1="256" y1="256" x2="405" y2="108"/>
+      <line x1="256" y1="256" x2="441" y2="157"/>
+      <line x1="256" y1="256" x2="459" y2="214"/>
+      <line x1="256" y1="256" x2="463" y2="276"/>
+      <line x1="256" y1="256" x2="438" y2="351"/>
+      <line x1="256" y1="256" x2="394" y2="408"/>
+      <line x1="256" y1="256" x2="315" y2="461"/>
+      <line x1="256" y1="256" x2="198" y2="461"/>
+      <line x1="256" y1="256" x2="118" y2="408"/>
+      <line x1="256" y1="256" x2="74" y2="351"/>
+      <line x1="256" y1="256" x2="49" y2="276"/>
+      <line x1="256" y1="256" x2="53" y2="214"/>
+      <line x1="256" y1="256" x2="71" y2="157"/>
+      <line x1="256" y1="256" x2="107" y2="108"/>
+      <line x1="256" y1="256" x2="152" y2="76"/>
+      <line x1="256" y1="256" x2="202" y2="56"/>
+
+    </g>
+
+
+    <!-- ================================== -->
+    <!--                SEEDS                -->
+    <!-- ================================== -->
+
+    <g
+      fill="#031b4d"
+      stroke="#1c5ea8"
+      stroke-width="2"
+    >
+
+      <ellipse cx="256" cy="104" rx="6" ry="14"/>
+
+      <ellipse
+        cx="298"
+        cy="111"
+        rx="6"
+        ry="14"
+        transform="rotate(18 298 111)"
+      />
+
+      <ellipse
+        cx="338"
+        cy="129"
+        rx="6"
+        ry="14"
+        transform="rotate(35 338 129)"
+      />
+
+      <ellipse
+        cx="371"
+        cy="157"
+        rx="6"
+        ry="14"
+        transform="rotate(50 371 157)"
+      />
+
+      <ellipse
+        cx="397"
+        cy="193"
+        rx="6"
+        ry="14"
+        transform="rotate(67 397 193)"
+      />
+
+      <ellipse
+        cx="408"
+        cy="235"
+        rx="6"
+        ry="14"
+        transform="rotate(84 408 235)"
+      />
+
+      <ellipse
+        cx="408"
+        cy="278"
+        rx="6"
+        ry="14"
+        transform="rotate(96 408 278)"
+      />
+
+      <ellipse
+        cx="397"
+        cy="320"
+        rx="6"
+        ry="14"
+        transform="rotate(112 397 320)"
+      />
+
+      <ellipse
+        cx="371"
+        cy="356"
+        rx="6"
+        ry="14"
+        transform="rotate(130 371 356)"
+      />
+
+      <ellipse
+        cx="338"
+        cy="384"
+        rx="6"
+        ry="14"
+        transform="rotate(145 338 384)"
+      />
+
+      <ellipse
+        cx="298"
+        cy="401"
+        rx="6"
+        ry="14"
+        transform="rotate(162 298 401)"
+      />
+
+      <ellipse cx="256" cy="408" rx="6" ry="14"/>
+
+      <ellipse
+        cx="214"
+        cy="401"
+        rx="6"
+        ry="14"
+        transform="rotate(18 214 401)"
+      />
+
+      <ellipse
+        cx="174"
+        cy="384"
+        rx="6"
+        ry="14"
+        transform="rotate(35 174 384)"
+      />
+
+      <ellipse
+        cx="141"
+        cy="356"
+        rx="6"
+        ry="14"
+        transform="rotate(50 141 356)"
+      />
+
+      <ellipse
+        cx="115"
+        cy="320"
+        rx="6"
+        ry="14"
+        transform="rotate(67 115 320)"
+      />
+
+      <ellipse
+        cx="104"
+        cy="278"
+        rx="6"
+        ry="14"
+        transform="rotate(84 104 278)"
+      />
+
+      <ellipse
+        cx="104"
+        cy="235"
+        rx="6"
+        ry="14"
+        transform="rotate(96 104 235)"
+      />
+
+      <ellipse
+        cx="115"
+        cy="193"
+        rx="6"
+        ry="14"
+        transform="rotate(112 115 193)"
+      />
+
+      <ellipse
+        cx="141"
+        cy="157"
+        rx="6"
+        ry="14"
+        transform="rotate(130 141 157)"
+      />
+
+      <ellipse
+        cx="174"
+        cy="129"
+        rx="6"
+        ry="14"
+        transform="rotate(145 174 129)"
+      />
+
+      <ellipse
+        cx="214"
+        cy="111"
+        rx="6"
+        ry="14"
+        transform="rotate(162 214 111)"
+      />
+
+    </g>
+
+
+    <!-- ================================== -->
+    <!--          LUMINOUS HEART             -->
+    <!-- ================================== -->
+
+    <circle
+      cx="256"
+      cy="256"
+      r="58"
+      fill="#55c8ff"
+      opacity=".30"
+      filter="url(#glow)"
+    />
+
+    <circle
+      cx="256"
+      cy="256"
+      r="47"
+      fill="url(#heart)"
+    />
+
+    <circle
+      cx="245"
+      cy="245"
+      r="20"
+      fill="#ffffff"
+      opacity=".32"
+    />
+
+  </g>
+
+
+  <!-- ====================================== -->
+  <!--            GLOSSY HIGHLIGHT            -->
+  <!-- ====================================== -->
+
+  <ellipse
+    cx="180"
+    cy="145"
+    rx="58"
+    ry="25"
+    fill="#ffffff"
+    opacity=".13"
+    transform="rotate(-35 180 145)"
+  />
+
+
+  <!-- ====================================== -->
+  <!--               OUTER RIM                -->
+  <!-- ====================================== -->
+
+  <circle
+    cx="256"
+    cy="256"
+    r="207"
+    fill="none"
+    stroke="#55baff"
+    stroke-width="4"
+    opacity=".75"
+  />
+
+
+  <!-- ====================================== -->
+  <!--        MAGICAL FIXED SPARKLES         -->
+  <!-- ====================================== -->
+
+  <g fill="#ffffff" filter="url(#sparkle)">
+
+
+    <!-- Top left -->
+    <path
+      d="M95 103
+         C105 103 108 98 110 86
+         C112 98 116 103 126 105
+         C116 107 112 112 110 124
+         C108 112 105 107 95 103Z"
+    >
+
+      <animate
+        attributeName="opacity"
+        values="0.15;1;0.15"
+        dur="3s"
+        repeatCount="indefinite"
+      />
+
+    </path>
+
+
+    <!-- Top right -->
+    <path
+      d="M398 78
+         C407 78 410 73 412 63
+         C414 73 418 78 427 80
+         C418 82 414 87 412 97
+         C410 87 407 82 398 78Z"
+    >
+
+      <animate
+        attributeName="opacity"
+        values="0.05;0.9;0.05"
+        dur="4s"
+        begin="1s"
+        repeatCount="indefinite"
+      />
+
+    </path>
+
+
+    <!-- Right -->
+    <path
+      d="M445 203
+         C453 203 456 199 458 190
+         C460 199 463 203 471 205
+         C463 207 460 211 458 220
+         C456 211 453 207 445 203Z"
+    >
+
+      <animate
+        attributeName="opacity"
+        values="0.1;1;0.1"
+        dur="3.5s"
+        begin="1.8s"
+        repeatCount="indefinite"
+      />
+
+    </path>
+
+
+    <!-- Bottom -->
+    <path
+      d="M365 430
+         C375 430 378 425 380 414
+         C382 425 386 430 396 432
+         C386 434 382 439 380 450
+         C378 439 375 434 365 430Z"
+    >
+
+      <animate
+        attributeName="opacity"
+        values="0.05;0.85;0.05"
+        dur="4.5s"
+        begin="0.5s"
+        repeatCount="indefinite"
+      />
+
+    </path>
+
+
+    <!-- Left -->
+    <path
+      d="M57 265
+         C64 265 67 261 69 253
+         C71 261 74 265 81 267
+         C74 269 71 273 69 281
+         C67 273 64 269 57 265Z"
+    >
+
+      <animate
+        attributeName="opacity"
+        values="0.1;1;0.1"
+        dur="2.7s"
+        begin="2.2s"
+        repeatCount="indefinite"
+      />
+
+    </path>
+
+  </g>
+
+
+  <!-- ====================================== -->
+  <!--          TINY FIXED SPARKLES          -->
+  <!-- ====================================== -->
+
+  <g fill="#9ee8ff">
+
+
+    <circle
+      cx="135"
+      cy="78"
+      r="4"
+    >
+
+      <animate
+        attributeName="opacity"
+        values="0.1;1;0.1"
+        dur="2s"
+        repeatCount="indefinite"
+      />
+
+    </circle>
+
+
+    <circle
+      cx="427"
+      cy="135"
+      r="4"
+    >
+
+      <animate
+        attributeName="opacity"
+        values="0.8;0.1;0.8"
+        dur="3s"
+        begin="0.8s"
+        repeatCount="indefinite"
+      />
+
+    </circle>
+
+
+    <circle
+      cx="430"
+      cy="345"
+      r="3"
+    >
+
+      <animate
+        attributeName="opacity"
+        values="0.1;0.9;0.1"
+        dur="2.5s"
+        begin="1.4s"
+        repeatCount="indefinite"
+      />
+
+    </circle>
+
+
+    <circle
+      cx="92"
+      cy="335"
+      r="3"
+    >
+
+      <animate
+        attributeName="opacity"
+        values="0.7;0.1;0.7"
+        dur="3.5s"
+        begin="2s"
+        repeatCount="indefinite"
+      />
+
+    </circle>
+
+
+    <circle
+      cx="355"
+      cy="55"
+      r="3"
+    >
+
+      <animate
+        attributeName="opacity"
+        values="0.1;1;0.1"
+        dur="2.8s"
+        begin="0.4s"
+        repeatCount="indefinite"
+      />
+
+    </circle>
+
+  </g>
+
+</svg>

@@ -1,4 +1,4 @@
-import { Search, Settings, Sparkles, BookOpen, Users, Store } from "lucide-react";
+import { Search, Settings, BookOpen, Users, Store } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
@@ -12,8 +12,8 @@ export function TopBar() {
   return (
     <header className="flex h-11 shrink-0 items-center gap-3 border-b border-border bg-panel px-3">
       <div className="flex items-center gap-2 pr-2">
-        <div className="flex h-6 w-6 items-center justify-center rounded-md bg-accent/15 text-accent">
-          <Sparkles className="h-3.5 w-3.5" />
+        <div className="flex h-6 w-6 items-center justify-center rounded-md bg-accent/15">
+          <img src="/favicon.svg" alt="" className="h-4 w-4" />
         </div>
         <span className="text-[13px] font-semibold tracking-tight">Bryncraft</span>
       </div>

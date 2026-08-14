@@ -143,7 +143,7 @@ function buildParamsBlock(params: EffectParams): string {
 const codegen: EffectCodegenModule = {
   headerRaw,
   mainRaw,
-  mainFilename: "main.c",
+  mainFilename: "main004.c",
   readmeRaw,
   paramsRegex: /static TD_Params TD_g_params = \{[\s\S]*?\};\r?\n/,
   buildParamsBlock,
