@@ -4,9 +4,19 @@ import { wasmBridge } from "@/lib/wasmBridge";
 import { MockRenderer } from "@/lib/mockRenderer";
 import { CameraCapture } from "@/lib/cameraCapture";
 
+// Sized against the full viewport, not just canvas.clientWidth/clientHeight —
+// the container's measured size can lag one frame behind on first paint
+// (flex layout still settling, panels not yet at final width), which used
+// to leave the render target smaller than the visible box with checker
+// background showing through the uncovered strip. The container can never
+// be larger than the viewport, so backing store is always big enough to
+// cover it; it just downscales visually via the canvas's own w-full/h-full
+// CSS, which is harmless for a preview render.
 function containerPixelSize(canvas: HTMLCanvasElement) {
   const dpr = Math.min(2, window.devicePixelRatio || 1);
-  return { width: Math.round(canvas.clientWidth * dpr), height: Math.round(canvas.clientHeight * dpr) };
+  const width = Math.max(canvas.clientWidth, window.innerWidth);
+  const height = Math.max(canvas.clientHeight, window.innerHeight);
+  return { width: Math.round(width * dpr), height: Math.round(height * dpr) };
 }
 
 function watchDevicePixelRatio(onChange: () => void) {
@@ -227,5 +237,5 @@ export function ViewportCanvas() {
     return unsubscribe;
   }, []);
 
-  return <canvas ref={canvasRef} id="canvas" className="h-full w-full" />;
+  return <canvas ref={canvasRef} id="canvas" className="block h-full w-full" />;
 }

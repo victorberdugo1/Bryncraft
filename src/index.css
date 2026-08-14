@@ -18,6 +18,10 @@
   border-color: hsl(var(--border));
 }
 
+canvas {
+  display: block;
+}
+
 html,
 body,
 #root {
