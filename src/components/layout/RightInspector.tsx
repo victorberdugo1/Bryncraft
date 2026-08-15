@@ -20,12 +20,8 @@ export function RightInspector() {
     const currentMode = params?.mode as string | undefined;
     const map = new Map<string, typeof def.params>();
     for (const p of def.params) {
-      // Puramente visual: si el control declara "modes", solo se muestra
-      // mientras el propio parámetro "mode" del efecto tenga uno de esos
-      // valores. El parámetro sigue existiendo, con su valor normal, y el
-      // motor nativo lo sigue recibiendo igual -- esto solo oculta el
-      // control del Inspector cuando no aplica al modo activo.
       if (p.modes && currentMode !== undefined && !p.modes.includes(currentMode)) continue;
+      if (p.showWhen && params?.[p.showWhen.key] !== p.showWhen.equals) continue;
       const key = p.group ?? "General";
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(p);

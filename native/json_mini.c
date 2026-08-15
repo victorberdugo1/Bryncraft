@@ -8,7 +8,7 @@
 // ============================================================================
 
 #define JSON_ARENA_SIZE          (64 * 1024)
-#define JSON_MAX_OBJECT_MEMBERS   64 // per-object cap while parsing (stack-local, not the arena)
+#define JSON_MAX_OBJECT_MEMBERS   128 // per-object cap while parsing (stack-local, not the arena)
 
 static char        g_arena[JSON_ARENA_SIZE];
 static size_t      g_arenaPos = 0;

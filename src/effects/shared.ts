@@ -26,6 +26,10 @@ export interface ParamSchema {
    * puramente visual (el param/valor/comportamiento no cambia, solo si el
    * control se renderiza). Omitilo para controles que aplican siempre. */
   modes?: string[];
+  /** Si está seteado, este control solo se muestra en el Inspector mientras
+   * el param indicado por "key" tenga el valor "equals" — puramente visual,
+   * igual que "modes" pero contra cualquier otro param del efecto. */
+  showWhen?: { key: string; equals: EffectParamValue };
 }
 
 export interface EffectDefinition<Id extends string = string> {

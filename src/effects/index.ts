@@ -14,10 +14,11 @@ import { PARTICLES_MODULE } from "./particles";
 import { CRT_MODULE } from "./crt";
 import { OPENCV_MODULE } from "./opencv";
 import { TOUCHDESIGNER_MODULE } from "./touchdesigner";
+import { EFFECT_ATELIER_MODULE } from "./effect_atelier";
 
 export * from "./shared";
 
-export const EFFECT_MODULES = [ASCII_MODULE, PARTICLES_MODULE, CRT_MODULE, OPENCV_MODULE, TOUCHDESIGNER_MODULE] as const;
+export const EFFECT_MODULES = [ASCII_MODULE, PARTICLES_MODULE, CRT_MODULE, OPENCV_MODULE, TOUCHDESIGNER_MODULE, EFFECT_ATELIER_MODULE] as const;
 
 export type EffectId = (typeof EFFECT_MODULES)[number]["definition"]["id"];
 

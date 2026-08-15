@@ -29,6 +29,203 @@ function hexToRgb(hex: string): [number, number, number] {
   return [Number.isNaN(r) ? 0 : r, Number.isNaN(g) ? 0 : g, Number.isNaN(b) ? 0 : b];
 }
 
+interface Vec3 {
+  x: number;
+  y: number;
+  z: number;
+}
+
+function v3(x: number, y: number, z: number): Vec3 {
+  return { x, y, z };
+}
+
+function v3Sub(a: Vec3, b: Vec3): Vec3 {
+  return v3(a.x - b.x, a.y - b.y, a.z - b.z);
+}
+
+function v3Cross(a: Vec3, b: Vec3): Vec3 {
+  return v3(a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x);
+}
+
+function v3Dot(a: Vec3, b: Vec3): number {
+  return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
+function v3Normalize(a: Vec3): Vec3 {
+  const len = Math.hypot(a.x, a.y, a.z) || 1;
+  return v3(a.x / len, a.y / len, a.z / len);
+}
+
+function hash01(n: number): number {
+  const s = Math.sin(n * 12.9898) * 43758.5453;
+  return s - Math.floor(s);
+}
+
+function lerp(a: number, b: number, t: number): number {
+  return a + (b - a) * t;
+}
+
+function lerpColor(a: [number, number, number], b: [number, number, number], t: number): [number, number, number] {
+  return [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)];
+}
+
+interface OrbitCamera {
+  position: Vec3;
+  target: Vec3;
+  up: Vec3;
+  fovyDeg: number;
+}
+
+function projectToScreen(pos: Vec3, camera: OrbitCamera, w: number, h: number): { x: number; y: number; depth: number } | null {
+  const forward = v3Normalize(v3Sub(camera.target, camera.position));
+  const right = v3Normalize(v3Cross(forward, camera.up));
+  const camUp = v3Cross(right, forward);
+  const rel = v3Sub(pos, camera.position);
+  const viewX = v3Dot(rel, right);
+  const viewY = v3Dot(rel, camUp);
+  const viewZ = v3Dot(rel, forward);
+  if (viewZ <= 0.05) return null;
+  const scale = h / 2 / Math.tan(((camera.fovyDeg * Math.PI) / 180) / 2);
+  return { x: w / 2 + (viewX / viewZ) * scale, y: h / 2 - (viewY / viewZ) * scale, depth: viewZ };
+}
+
+interface AtelierPoint {
+  pos: Vec3;
+  colorT: number;
+  size: number;
+}
+
+function sampleAtelierShapePoints(shape: string, count: number, t: number, seed: number, p: EffectParams): AtelierPoint[] {
+  const points: AtelierPoint[] = [];
+  const radius = Number(p.radius ?? 1.0);
+  const spawnMin = Number(p.spawnRadiusMin ?? 0.3);
+  const spawnMax = Number(p.spawnRadiusMax ?? 1.0);
+  const yawRad = (Number(p.directionYaw ?? 0) * Math.PI) / 180;
+  const loopInterval = Math.max(0.05, Number(p.loopInterval ?? 1.2));
+
+  if (shape === "shield") {
+    const facingDeg = Number(p.shieldFacingDeg ?? 0) + (p.shieldAutoRotate ? t * Number(p.shieldRotateSpeedDeg ?? 25) : 0);
+    const archWidth = (Number(p.shieldArchWidthDeg ?? 110) * Math.PI) / 180;
+    const archHeight = (Number(p.shieldArchHeightDeg ?? 80) * Math.PI) / 180;
+    const facingRad = (facingDeg * Math.PI) / 180;
+    for (let i = 0; i < count; i++) {
+      const ra = hash01(seed + i);
+      const rb = hash01(seed + i + 500);
+      const yaw = facingRad + (ra - 0.5) * archWidth;
+      const pitch = (rb - 0.5) * archHeight;
+      const r = 0.9;
+      points.push({
+        pos: v3(Math.sin(yaw) * Math.cos(pitch) * r, 0.6 + Math.sin(pitch) * r, Math.cos(yaw) * Math.cos(pitch) * r),
+        colorT: rb,
+        size: 0.045,
+      });
+    }
+    return points;
+  }
+
+  if (shape === "field") {
+    const rotation = (Number(p.fieldRotationSpeedDeg ?? 12) * Math.PI) / 180 * t;
+    const pulse = 1 + 0.05 * Math.sin(t * Number(p.fieldPulseSpeed ?? 1.2)) * Number(p.fieldPulseAmount ?? 0.04) * 10;
+    for (let i = 0; i < count; i++) {
+      const ra = hash01(seed + i);
+      const rb = hash01(seed + i + 500);
+      const yaw = ra * Math.PI * 2 + rotation;
+      const pitch = rb * (Math.PI / 2);
+      const r = 1.0 * pulse;
+      points.push({
+        pos: v3(Math.sin(yaw) * Math.cos(pitch) * r, 0.6 + Math.sin(pitch) * r, Math.cos(yaw) * Math.cos(pitch) * r),
+        colorT: rb,
+        size: 0.04,
+      });
+    }
+    return points;
+  }
+
+  if (shape === "fire_orbs" || shape === "wind_spin" || shape === "fire_wind") {
+    const orbCount = Math.max(1, Math.round(Number(p.orbCount ?? 4)));
+    const orbitRadius = Number(p.orbitRadius ?? 1.1);
+    const orbitSpeed = (Number(p.orbitSpeedDeg ?? 140) * Math.PI) / 180;
+    const bobAmount = Number(p.orbBobAmount ?? 0.2);
+    const bobSpeed = Number(p.orbBobSpeed ?? 2.2);
+    const helixHeight = Number(p.windHelixHeight ?? 2.4);
+    const helixTurns = Number(p.windHelixTurns ?? 2.5);
+    for (let i = 0; i < orbCount; i++) {
+      const angle = (i / orbCount) * Math.PI * 2 + t * orbitSpeed;
+      const wind = shape !== "fire_orbs" ? Math.sin(angle * helixTurns) * helixHeight * 0.15 : 0;
+      const bob = shape !== "wind_spin" ? Math.sin(t * bobSpeed + i) * bobAmount : 0;
+      points.push({
+        pos: v3(Math.sin(angle) * orbitRadius, 0.6 + bob + wind, Math.cos(angle) * orbitRadius),
+        colorT: i / Math.max(1, orbCount - 1),
+        size: Number(p.orbSize ?? 0.14),
+      });
+    }
+    return points;
+  }
+
+  for (let i = 0; i < count; i++) {
+    const rand = hash01(seed + i);
+    const rand2 = hash01(seed + i + 1000);
+    const frac = ((t + (i / count) * loopInterval) % loopInterval) / loopInterval;
+    let pos: Vec3;
+
+    switch (shape) {
+      case "ring": {
+        const angle = (i / count) * Math.PI * 2 + t * 0.4;
+        pos = v3(Math.sin(angle) * radius, 0.6, Math.cos(angle) * radius);
+        break;
+      }
+      case "spiral": {
+        const angle = frac * Math.PI * 2 * 3 + t * 0.5;
+        const r = radius * frac;
+        pos = v3(Math.sin(angle) * r, 0.2 + frac * 2, Math.cos(angle) * r);
+        break;
+      }
+      case "beam": {
+        const dist = frac * radius;
+        pos = v3(Math.sin(yawRad) * dist, 0.6 + (rand - 0.5) * 0.1, Math.cos(yawRad) * dist);
+        break;
+      }
+      case "pillar": {
+        const angle = rand * Math.PI * 2;
+        pos = v3(Math.sin(angle) * 0.15, frac * radius * 2, Math.cos(angle) * 0.15);
+        break;
+      }
+      case "rain": {
+        const angle = rand * Math.PI * 2;
+        const r = rand2 * radius;
+        pos = v3(Math.sin(angle) * r, radius * 2 * (1 - frac), Math.cos(angle) * r);
+        break;
+      }
+      case "wave": {
+        const x = lerp(-radius, radius, i / Math.max(1, count - 1));
+        pos = v3(x, 0.6 + Math.sin(x * 2 + t * 2) * 0.3, 0);
+        break;
+      }
+      case "projectile": {
+        const dist = lerp(-radius, radius, frac);
+        pos = v3(Math.sin(yawRad) * dist, 0.6 + Math.sin(frac * Math.PI) * radius * 0.5, Math.cos(yawRad) * dist);
+        break;
+      }
+      case "jump": {
+        const angle = rand * Math.PI * 2;
+        const r = rand2 * radius * 0.3;
+        pos = v3(Math.sin(angle) * r, 0.6 + Math.sin(frac * Math.PI) * radius, Math.cos(angle) * r);
+        break;
+      }
+      default: {
+        const theta = rand * Math.PI * 2 + t * 0.3;
+        const phi = Math.acos(2 * rand2 - 1);
+        const r = lerp(spawnMin, spawnMax, hash01(seed + i + 2000));
+        pos = v3(Math.sin(phi) * Math.cos(theta) * r, 0.6 + Math.cos(phi) * r, Math.sin(phi) * Math.sin(theta) * r);
+        break;
+      }
+    }
+
+    points.push({ pos, colorT: rand2, size: 0.05 });
+  }
+  return points;
+}
+
 /**
  * Reference preview renderer. This is NOT the final visual output — the compiled
  * Raylib/WASM build (native/) owns rendering — but it mirrors the same param
@@ -46,6 +243,7 @@ export class MockRenderer {
   private matrixBaseGlyphs: string[] = [];
   private matrixCols = 0;
   private matrixRows = 0;
+  private atelierOrbitAngle = 0;
   // Ring buffer of recent frames for the CRT "ghosting" param — sampled a
   // few frames apart (not every frame) so each stored copy shows the scene
   // in a visibly different position, like the classic multi-exposure "many
@@ -189,7 +387,11 @@ export class MockRenderer {
 
   start() {
     const loop = () => {
-      this.tick();
+      try {
+        this.tick();
+      } catch (err) {
+        console.error("[MockRenderer] tick failed, continuing loop", err);
+      }
       this.timerHandle = window.setTimeout(loop, MockRenderer.TICK_INTERVAL_MS);
     };
     this.timerHandle = window.setTimeout(loop, MockRenderer.TICK_INTERVAL_MS);
@@ -228,6 +430,9 @@ export class MockRenderer {
         break;
       case "touchdesigner":
         this.renderTouchdesigner(w, h, now);
+        break;
+      case "effect_atelier":
+        this.renderEffectAtelier(w, h, dt);
         break;
     }
 
@@ -898,5 +1103,100 @@ export class MockRenderer {
     ctx.fillStyle = "#44D4FF";
     ctx.fillText(label, paddingX, h - paddingY);
     ctx.restore();
+  }
+
+  private renderEffectAtelier(w: number, h: number, dt: number) {
+    const ctx = this.ctx;
+    const p = this.params;
+
+    this.atelierOrbitAngle += (Number(p.cameraOrbitSpeed ?? 18) * Math.PI) / 180 * dt;
+    const dist = Number(p.cameraDistance ?? 5.5);
+    const camera: OrbitCamera = {
+      position: v3(Math.sin(this.atelierOrbitAngle) * dist, dist * 0.55, Math.cos(this.atelierOrbitAngle) * dist),
+      target: v3(0, 0.6, 0),
+      up: v3(0, 1, 0),
+      fovyDeg: 45,
+    };
+
+    const grad = ctx.createLinearGradient(0, 0, 0, h);
+    grad.addColorStop(0, "#0e1420");
+    grad.addColorStop(1, "#05060a");
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, w, h);
+
+    if (p.showGrid !== false) {
+      ctx.strokeStyle = "rgba(140,160,200,0.18)";
+      ctx.lineWidth = 1;
+      for (let i = -3; i <= 3; i++) {
+        const a = projectToScreen(v3(-3, 0, i), camera, w, h);
+        const b = projectToScreen(v3(3, 0, i), camera, w, h);
+        if (a && b) {
+          ctx.beginPath();
+          ctx.moveTo(a.x, a.y);
+          ctx.lineTo(b.x, b.y);
+          ctx.stroke();
+        }
+        const c = projectToScreen(v3(i, 0, -3), camera, w, h);
+        const d = projectToScreen(v3(i, 0, 3), camera, w, h);
+        if (c && d) {
+          ctx.beginPath();
+          ctx.moveTo(c.x, c.y);
+          ctx.lineTo(d.x, d.y);
+          ctx.stroke();
+        }
+      }
+    }
+
+    const t = performance.now() / 1000;
+    type LayerSpec = { shape: string; count: number; core: [number, number, number]; mid: [number, number, number]; outer: [number, number, number]; seed: number };
+    const layers: LayerSpec[] = [
+      {
+        shape: String(p.mode ?? "sphere"),
+        count: Math.max(1, Math.round(Number(p.particleCount ?? 20))),
+        core: hexToRgb(String(p.colorCore ?? "#FFE08C")),
+        mid: hexToRgb(String(p.colorMid ?? "#FF7818")),
+        outer: hexToRgb(String(p.colorOuter ?? "#FF3C00")),
+        seed: 0,
+      },
+    ];
+    for (const n of [2, 3, 4] as const) {
+      if (!p[`layer${n}Enabled`]) continue;
+      layers.push({
+        shape: String(p[`layer${n}Shape`] ?? "sphere"),
+        count: Math.max(1, Math.round(Number(p[`layer${n}ParticleCount`] ?? 20))),
+        core: hexToRgb(String(p[`layer${n}ColorCore`] ?? "#FFE08C")),
+        mid: hexToRgb(String(p[`layer${n}ColorMid`] ?? "#FF7818")),
+        outer: hexToRgb(String(p[`layer${n}ColorOuter`] ?? "#FF3C00")),
+        seed: n * 4096,
+      });
+    }
+
+    const projected: { x: number; y: number; depth: number; size: number; color: [number, number, number] }[] = [];
+    for (const layer of layers) {
+      const points = sampleAtelierShapePoints(layer.shape, layer.count, t, layer.seed, p);
+      for (const point of points) {
+        const screen = projectToScreen(point.pos, camera, w, h);
+        if (!screen) continue;
+        const color = point.colorT < 0.5 ? lerpColor(layer.core, layer.mid, point.colorT * 2) : lerpColor(layer.mid, layer.outer, (point.colorT - 0.5) * 2);
+        projected.push({ x: screen.x, y: screen.y, depth: screen.depth, size: point.size, color });
+      }
+    }
+    projected.sort((a, b) => b.depth - a.depth);
+
+    const additive = p.additive !== false;
+    ctx.globalCompositeOperation = additive ? "lighter" : "source-over";
+    const pixelsPerUnit = h / 2 / Math.tan((45 * Math.PI) / 360);
+    for (const point of projected) {
+      const screenSize = Math.max(1, (point.size * pixelsPerUnit) / point.depth);
+      const [r, g, b] = point.color;
+      const gradient = ctx.createRadialGradient(point.x, point.y, 0, point.x, point.y, screenSize);
+      gradient.addColorStop(0, `rgba(${r},${g},${b},0.9)`);
+      gradient.addColorStop(1, `rgba(${r},${g},${b},0)`);
+      ctx.fillStyle = gradient;
+      ctx.beginPath();
+      ctx.arc(point.x, point.y, screenSize, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalCompositeOperation = "source-over";
   }
 }

@@ -21,6 +21,7 @@
 #include "effects/crt/crt_effect.h"
 #include "effects/opencv/opencv_effect.h"
 #include "effects/touchdesigner/touchdesigner_effect.h"
+#include "effects/effect_atelier/effect_atelier.h"
 
 #include <math.h>
 #include <stdio.h>

@@ -10,6 +10,7 @@ import {
 } from "@/types/effects";
 import { extractVideoFrames } from "@/lib/videoFrameExtractor";
 import { deriveTrailColor } from "@/lib/color";
+import { ELEMENT_PALETTES } from "@/effects/effect_atelier";
 
 export type ZoomMode = "fit" | "50" | "100" | "200" | "custom";
 
@@ -149,6 +150,27 @@ export const useAppStore = create<AppState>((set) => ({
       // Foreground Color a mano no toca el Head Color.
       if (effect === "ascii" && key === "matrixHeadColor" && typeof value === "string") {
         next.foreground = deriveTrailColor(value);
+      }
+      // Element Burst: picking a new element (base layer or a combo layer)
+      // re-applies that element's default core/mid/outer palette, so the
+      // look actually changes instead of keeping whatever colors were set
+      // for the previous element. colorCore/Mid/Outer stay overridable
+      // afterwards — this only fires on the element dropdown itself.
+      if (effect === "effect_atelier" && typeof value === "string") {
+        const comboMatch = /^layer([234])Element$/.exec(key);
+        const palette = ELEMENT_PALETTES[value];
+        if (palette) {
+          if (key === "element") {
+            next.colorCore = palette.core;
+            next.colorMid = palette.mid;
+            next.colorOuter = palette.outer;
+          } else if (comboMatch) {
+            const n = comboMatch[1];
+            next[`layer${n}ColorCore`] = palette.core;
+            next[`layer${n}ColorMid`] = palette.mid;
+            next[`layer${n}ColorOuter`] = palette.outer;
+          }
+        }
       }
       return {
         paramsByEffect: { ...s.paramsByEffect, [effect]: next },

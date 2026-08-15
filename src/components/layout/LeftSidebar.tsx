@@ -43,6 +43,7 @@ export function LeftSidebar() {
             <button
               key={id}
               onClick={() => setActiveEffect(id)}
+              title={def.description}
               className={cn(
                 "block w-full rounded-md p-1.5 text-left transition-colors",
                 active ? "bg-panel-raised" : "hover:bg-panel-raised/60"
@@ -54,7 +55,6 @@ export function LeftSidebar() {
                   {def.name}
                 </span>
               </div>
-              <p className="mt-0.5 text-[10.5px] leading-snug text-muted-foreground">{def.description}</p>
             </button>
           );
         })}
