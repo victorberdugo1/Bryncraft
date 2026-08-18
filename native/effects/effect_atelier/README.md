@@ -1,69 +1,124 @@
 # Element Burst
 
-A 3D world-space particle burst rendered with an orbiting `Camera3D`,
-using the same billboard-circle technique (`GetWorldToScreen` + nested
-`DrawCircleV`) as Enuma Ichor's `CardVFX_Render*Particles` functions in
-`inc/effects.h`. Loops automatically on `loopInterval` so it plays as a
-live preview.
+A ready-to-use magic/element particle effect for [raylib](https://www.raylib.com/)
+games — fireballs, lightning, shields, water rings, heal auras, and more,
+all in a single `effect_atelier.h` file. No engine, no dependencies beyond
+raylib.
 
-## Parameters
+Try it live: click or press SPACE in the demo window to fire the effect.
 
-| Field | Range | What it does |
-|---|---|---|
-| `element` | select (neutral/fire/water/earth/wind/lightning/dark/poison) | Matches Enuma Ichor's `Element` enum, purely descriptive here |
-| `presetName` | string | Name used for the exported preset and the in-game `VFX_CUSTOM_<name>` trigger |
-| `particleCount` | 4..64 | Particles per burst |
-| `spawnRadiusMin` / `spawnRadiusMax` | 0..3 | Seed sphere radius the burst launches from |
-| `speedMin` / `speedMax` | 0..10 | Initial particle speed range |
-| `lifeMin` / `lifeMax` | 0.05..3 | Particle lifetime range (seconds) |
-| `loopInterval` | 0.2..5 | Seconds between automatic re-triggers in the preview |
-| `gravity` | -5..5 | Downward acceleration |
-| `drag` | 0..4 | Velocity damping per second |
-| `colorCore` / `colorMid` / `colorOuter` | color | Three-layer billboard gradient |
-| `additive` | bool | Additive vs alpha blending |
-| `cameraDistance` | 2..15 | Orbit camera radius |
-| `cameraOrbitSpeed` | -180..180 | Orbit camera speed (deg/sec) |
-| `showGrid` | bool | Reference floor grid — turn off before a transparent-video export |
+## 1. Add it to your game
 
-## Combo layers and mesh shapes
+Copy `effect_atelier.h` into your project and include it once, next to raylib:
 
-`mode` (the base shape) and each of the 3 combo layers can independently be
-set to `shield`, `fire_orbs`, `wind_spin`, or `fire_wind`. Any of those set
-anywhere (base or an enabled layer) renders — so `shield` on the base with
-`fire_wind` on Combo Layer 2 draws both at once. `fire_orbs`, `wind_spin`,
-and `fire_wind` share a single orb pool, so only one of them animates if
-more than one is selected at the same time (`fire_wind` takes priority,
-then `wind_spin`, then `fire_orbs`); `shield` has its own state and always
-combines cleanly with any of them. All other shapes (`sphere`, `ring`,
-`spiral`, etc.) still spawn their own independent particle burst per layer.
+```c
+#include "raylib.h"
+#include "effect_atelier.h"
+```
 
-## JSON contract (`EffectAtelierEffect_SetParams`)
+## 2. The 5 functions you need
 
-```json
-{
-  "effect": "effect_atelier",
-  "params": {
-    "element": "fire",
-    "presetName": "meteor_impact",
-    "particleCount": 24,
-    "spawnRadiusMin": 0.4, "spawnRadiusMax": 1.0,
-    "speedMin": 1.2, "speedMax": 3.0,
-    "lifeMin": 0.4, "lifeMax": 0.9,
-    "loopInterval": 1.2,
-    "gravity": 2.0, "drag": 1.5,
-    "colorCore": "#FFE08C", "colorMid": "#FF7818", "colorOuter": "#FF3C00",
-    "additive": true,
-    "cameraDistance": 5.5, "cameraOrbitSpeed": 18, "showGrid": true
-  }
+```c
+EffectAtelierEffect_Init();                       // call once, after InitWindow()
+EffectAtelierEffect_Trigger();                     // call whenever you want the effect to fire
+EffectAtelierEffect_Update(GetFrameTime());        // call every frame
+EffectAtelierEffect_Draw(scene, screenW, screenH);  // call every frame, between BeginDrawing()/EndDrawing()
+EffectAtelierEffect_Unload();                      // call once, before CloseWindow()
+```
+
+That's the whole API. See `main.c` for a complete, working example — it
+fires the effect on a mouse click or the SPACE key.
+
+```c
+#include "raylib.h"
+#include "effect_atelier.h"
+
+int main(void) {
+    InitWindow(800, 600, "My Game");
+    SetTargetFPS(60);
+    RenderTexture2D scene = LoadRenderTexture(800, 600);
+    EffectAtelierEffect_Init();
+
+    while (!WindowShouldClose()) {
+        if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+            EffectAtelierEffect_Trigger();
+
+        EffectAtelierEffect_Update(GetFrameTime());
+
+        BeginDrawing();
+            ClearBackground(BLACK);
+            EffectAtelierEffect_Draw(scene, 800, 600);
+        EndDrawing();
+    }
+
+    EffectAtelierEffect_Unload();
+    UnloadRenderTexture(scene);
+    CloseWindow();
+    return 0;
 }
 ```
 
-## Exporting into Enuma Ichor
+## 3. Changing what the effect looks like
 
-The "Enuma Ichor preset" extra generated alongside the effect code is a
-`CustomBurstPreset` struct literal ready to paste into
-`inc/effects_custom.h`, inside `CUSTOM_BURST_PRESETS[]`. Once pasted,
-trigger it from any card's `VFX_` field with `VFX_CUSTOM_<presetName>` —
-no other game code changes needed. The same preset struct is plain C and
-has no Bryncraft/Emscripten dependency, so it drops into any raylib
-project that defines a matching `CustomBurstPreset` shape.
+Open `effect_atelier.h` and find `EB_g_params` near the top of the file —
+it's one big struct literal that describes the effect (shape, element,
+colors, speed, particle count, etc). Edit the values directly and
+recompile. There's no need to understand the rest of the file.
+
+The two fields you'll change most:
+
+```c
+.element = EB_ELEM_FIRE,      // what color palette to use
+.shape   = EB_SHAPE_SPHERE,   // what the effect looks like
+```
+
+**Elements** (color palettes): `EB_ELEM_NEUTRAL`, `EB_ELEM_FIRE`, `EB_ELEM_WATER`,
+`EB_ELEM_EARTH`, `EB_ELEM_WIND`, `EB_ELEM_LIGHTNING`, `EB_ELEM_DARK`,
+`EB_ELEM_POISON`, `EB_ELEM_LIGHT`, `EB_ELEM_ICE`
+
+**Shapes** (what gets drawn): `EB_SHAPE_SPHERE`, `EB_SHAPE_RING`, `EB_SHAPE_SPIRAL`,
+`EB_SHAPE_BEAM`, `EB_SHAPE_PILLAR`, `EB_SHAPE_RAIN`, `EB_SHAPE_WAVE`,
+`EB_SHAPE_PROJECTILE`, `EB_SHAPE_JUMP`, `EB_SHAPE_SHIELD`, `EB_SHAPE_FIELD`,
+`EB_SHAPE_FIRE_ORBS`, `EB_SHAPE_WIND_SPIN`, `EB_SHAPE_FIRE_WIND`,
+`EB_SHAPE_WATER_RING`, `EB_SHAPE_EARTH_BURST`, `EB_SHAPE_FIRE_BURST`,
+`EB_SHAPE_LIGHTNING_BURST`, `EB_SHAPE_POISON_BURST`, `EB_SHAPE_HEAL_AURA`,
+`EB_SHAPE_DARK_SLASH`, `EB_SHAPE_BARRIER`, `EB_SHAPE_FIREBALL`,
+`EB_SHAPE_WIND_SLASH`, `EB_SHAPE_ROCK_THROW`, `EB_SHAPE_LIGHTNING_BOLT`,
+`EB_SHAPE_WATER_JET`, `EB_SHAPE_ICE_SHARD`, `EB_SHAPE_POISON_ORB`,
+`EB_SHAPE_DARK_ORB`, `EB_SHAPE_LIGHT_ARROW`
+
+Other useful fields:
+
+| Field | What it does |
+|---|---|
+| `particleCount` | How many particles per burst |
+| `speedMin` / `speedMax` | How fast particles fly out |
+| `lifeMin` / `lifeMax` | How long particles last (seconds) |
+| `colorCore` / `colorMid` / `colorOuter` | The 3-layer particle color gradient |
+| `loopInterval` | Seconds between automatic re-triggers (on top of manual `Trigger()` calls) |
+| `showGrid` | Show a reference floor grid |
+
+## 4. Combining effects (combo layers)
+
+`EB_g_params.extraLayers` is a list of 3 extra layers that play at the same
+time as the main effect. Each layer has its own shape, color, and particle
+count. To turn one on:
+
+```c
+.extraLayers = {
+    { .enabled = 1, .shape = EB_SHAPE_WATER_RING, .particleCount = 24,
+      .colorCore = (Color){255, 224, 140, 255},
+      .colorMid  = (Color){255, 120,  24, 255},
+      .colorOuter= (Color){255,  60,   0, 255} },
+},
+```
+
+Set `.enabled = 0` (or leave it out) to keep a layer off. With all 3
+enabled you get up to 4 shapes playing together — that's how effects like
+"fire jump stomp" (a burst + an orbit + a ring) are built.
+
+## 5. Exporting a preset from the web tool
+
+If you designed an effect in the Bryncraft web tool, it exports a full
+`EB_g_params` struct literal. Just paste it over the existing `EB_g_params`
+definition in `effect_atelier.h` — no other changes needed.

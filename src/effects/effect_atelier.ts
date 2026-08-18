@@ -22,7 +22,7 @@ import libraylibLnxUrl from "../../native/effects/lnx/libraylib.a?url";
 // --- 1. Parameter definition (Inspector) ------------------------------------
 
 const ELEMENT_OPTIONS = ["neutral", "fire", "water", "earth", "wind", "lightning", "dark", "poison", "light", "ice"];
-const SHAPE_OPTIONS = ["sphere", "ring", "spiral", "beam", "pillar", "rain", "wave", "projectile", "jump", "shield", "field", "fire_orbs", "wind_spin", "fire_wind"];
+const SHAPE_OPTIONS = ["sphere", "ring", "spiral", "beam", "pillar", "rain", "wave", "projectile", "jump", "shield", "field", "fire_orbs", "wind_spin", "fire_wind", "water_ring", "earth_burst", "fire_burst", "lightning_burst", "poison_burst", "heal_aura", "dark_slash", "barrier", "fireball", "wind_slash", "rock_throw", "lightning_bolt", "water_jet", "ice_shard", "poison_orb", "dark_orb", "light_arrow", "bubble_burst"];
 
 /** Default core/mid/outer palette per element — this is what makes picking a
  * new element in the Inspector actually change the look, instead of leaving
@@ -61,7 +61,7 @@ const definition: EffectDefinition<"effect_atelier"> = {
   id: "effect_atelier",
   name: "Effect Atelier",
   description:
-    "3D world-space effect on an orbiting camera — same billboard-circle look as Enuma Ichor's CardVFX renderers, plus real-geometry shapes (hex-panel shield arc and full hex-dome field, both ported 1:1 from _CVFX_DrawHexPanel, orbiting fireballs, spinning wind funnel, and a fire_wind shape that unifies the two into one fire tornado). Fourteen shapes (sphere/ring/spiral/beam/pillar/rain/wave/projectile/jump/shield/field/fire_orbs/wind_spin/fire_wind) × 10 elements, with colors that follow the element automatically. Enable up to 3 combo layers to play several elements/shapes at once from the same origin. Name it and export a ready-to-paste preset for the game.",
+    "3D world-space effect on an orbiting camera — same billboard-circle look as Enuma Ichor's CardVFX renderers, plus real-geometry shapes (hex-panel shield arc and full hex-dome field, both ported 1:1 from _CVFX_DrawHexPanel, orbiting fireballs, spinning wind funnel, a fire_wind shape that unifies the two into one fire tornado, water_ring stomp shockwaves ported from CVT_WATER_BURST's wave walls, five more elemental bursts/auras — earth_burst, fire_burst, lightning_burst, poison_burst, heal_aura, dark_slash and barrier — and nine traveling spell projectiles — fireball, wind_slash, rock_throw, lightning_bolt, water_jet, ice_shard, poison_orb, dark_orb and light_arrow — all procedural, driven purely by time/index so they carry no extra per-particle state). Thirty-one shapes × 10 elements, with colors that follow the element automatically. Enable up to 3 combo layers (4 shapes total) to play several elements/shapes at once from the same origin. Name it and export a ready-to-paste preset for the game.",
   params: [
     { key: "element", label: "Element", type: "select", default: "fire", options: ELEMENT_OPTIONS, group: "Element" },
     { key: "mode", label: "Shape", type: "select", default: "sphere", options: SHAPE_OPTIONS, group: "Element" },
@@ -70,8 +70,8 @@ const definition: EffectDefinition<"effect_atelier"> = {
     { key: "particleCount", label: "Particle Count", type: "int", default: 20, min: 4, max: 64, step: 1, group: "Emission" },
     { key: "spawnRadiusMin", label: "Spawn Radius Min", type: "float", default: 0.3, min: 0, max: 3, step: 0.01, group: "Emission", modes: ["sphere"] },
     { key: "spawnRadiusMax", label: "Spawn Radius Max", type: "float", default: 1.0, min: 0, max: 3, step: 0.01, group: "Emission", modes: ["sphere"] },
-    { key: "radius", label: "Radius / Height / Travel", type: "float", default: 1.0, min: 0, max: 3, step: 0.01, group: "Emission", modes: ["ring", "spiral", "pillar", "rain", "wave", "projectile", "jump", "shield", "field"] },
-    { key: "directionYaw", label: "Direction (yaw °)", type: "float", default: 0, min: -180, max: 180, step: 1, group: "Emission", modes: ["beam", "projectile"] },
+    { key: "radius", label: "Radius / Height / Travel", type: "float", default: 1.0, min: 0, max: 3, step: 0.01, group: "Emission", modes: ["ring", "spiral", "pillar", "rain", "wave", "projectile", "jump", "shield", "field", "water_ring", "earth_burst", "poison_burst", "barrier", "fireball", "wind_slash", "rock_throw", "lightning_bolt", "water_jet", "ice_shard", "poison_orb", "dark_orb", "light_arrow", "bubble_burst"] },
+    { key: "directionYaw", label: "Direction (yaw °)", type: "float", default: 0, min: -180, max: 180, step: 1, group: "Emission", modes: ["beam", "projectile", "fireball", "wind_slash", "rock_throw", "lightning_bolt", "water_jet", "ice_shard", "poison_orb", "dark_orb", "light_arrow", "bubble_burst"] },
     { key: "speedMin", label: "Speed Min", type: "float", default: 1.2, min: 0, max: 10, step: 0.05, group: "Emission" },
     { key: "speedMax", label: "Speed Max", type: "float", default: 2.8, min: 0, max: 10, step: 0.05, group: "Emission" },
     { key: "lifeMin", label: "Life Min", type: "float", default: 0.35, min: 0.05, max: 3, step: 0.01, group: "Emission" },
@@ -114,12 +114,75 @@ const definition: EffectDefinition<"effect_atelier"> = {
     { key: "windRibbonWidth", label: "Ribbon Width", type: "float", default: 0.06, min: 0.01, max: 0.3, step: 0.005, group: "Wind", modes: ["wind_spin", "fire_wind"] },
     { key: "windFunnelLines", label: "Funnel Lines", type: "int", default: 6, min: 0, max: 10, step: 1, group: "Wind", modes: ["wind_spin", "fire_wind"] },
 
+    { key: "waterRingCount", label: "Ring Count", type: "int", default: 4, min: 1, max: 5, step: 1, group: "Water Ring", modes: ["water_ring"] },
+    { key: "waterRingDuration", label: "Ring Duration (s)", type: "float", default: 0.9, min: 0.1, max: 3, step: 0.05, group: "Water Ring", modes: ["water_ring"] },
+    { key: "waterRingStagger", label: "Stagger Between Rings (s)", type: "float", default: 0.09, min: 0, max: 0.5, step: 0.01, group: "Water Ring", modes: ["water_ring"] },
+    { key: "waterRingCrestHeight", label: "Crest Height", type: "float", default: 0.16, min: 0.02, max: 0.6, step: 0.01, group: "Water Ring", modes: ["water_ring"] },
+    { key: "waterRingThickness", label: "Wall Thickness", type: "float", default: 0.16, min: 0.02, max: 0.6, step: 0.01, group: "Water Ring", modes: ["water_ring"] },
+
+    { key: "earthBurstRockCount", label: "Rock Count", type: "int", default: 14, min: 0, max: 24, step: 1, group: "Earth Burst", modes: ["earth_burst"] },
+    { key: "earthBurstCrackCount", label: "Crack Count", type: "int", default: 10, min: 0, max: 12, step: 1, group: "Earth Burst", modes: ["earth_burst"] },
+    { key: "earthBurstDuration", label: "Burst Duration (s)", type: "float", default: 0.9, min: 0.1, max: 3, step: 0.05, group: "Earth Burst", modes: ["earth_burst"] },
+
+    { key: "fireBurstEmberCount", label: "Ember Count", type: "int", default: 18, min: 0, max: 30, step: 1, group: "Fire Burst", modes: ["fire_burst"] },
+    { key: "fireBurstDuration", label: "Burst Duration (s)", type: "float", default: 0.9, min: 0.1, max: 3, step: 0.05, group: "Fire Burst", modes: ["fire_burst"] },
+    { key: "fireBurstColumnHeight", label: "Column Height", type: "float", default: 2.2, min: 0.2, max: 5, step: 0.1, group: "Fire Burst", modes: ["fire_burst"] },
+
+    { key: "lightningBoltCount", label: "Bolt Count", type: "int", default: 5, min: 0, max: 8, step: 1, group: "Lightning Burst", modes: ["lightning_burst"] },
+    { key: "lightningBoltLife", label: "Bolt Lifespan (s)", type: "float", default: 0.4, min: 0.05, max: 1.5, step: 0.01, group: "Lightning Burst", modes: ["lightning_burst"] },
+    { key: "lightningJitter", label: "Zigzag Jitter", type: "float", default: 0.35, min: 0, max: 1, step: 0.01, group: "Lightning Burst", modes: ["lightning_burst"] },
+    { key: "lightningHeight", label: "Strike Height", type: "float", default: 2.5, min: 0.5, max: 6, step: 0.1, group: "Lightning Burst", modes: ["lightning_burst"] },
+
+    { key: "poisonRingCount", label: "Ring Count", type: "int", default: 3, min: 0, max: 3, step: 1, group: "Poison Burst", modes: ["poison_burst"] },
+    { key: "poisonBubbleCount", label: "Bubble Count", type: "int", default: 20, min: 0, max: 30, step: 1, group: "Poison Burst", modes: ["poison_burst"] },
+    { key: "poisonDuration", label: "Ring Duration (s)", type: "float", default: 1.1, min: 0.1, max: 3, step: 0.05, group: "Poison Burst", modes: ["poison_burst"] },
+
+    { key: "healCrossCount", label: "Cross Count", type: "int", default: 8, min: 0, max: 16, step: 1, group: "Heal Aura", modes: ["heal_aura"] },
+    { key: "healCycleDuration", label: "Orbit Cycle (s)", type: "float", default: 1.4, min: 0.2, max: 4, step: 0.05, group: "Heal Aura", modes: ["heal_aura"] },
+    { key: "healPillarHeight", label: "Pillar Height", type: "float", default: 2.0, min: 0.2, max: 5, step: 0.1, group: "Heal Aura", modes: ["heal_aura"] },
+
+    { key: "darkTentacleCount", label: "Tentacle Count", type: "int", default: 8, min: 0, max: 8, step: 1, group: "Dark Slash", modes: ["dark_slash"] },
+    { key: "darkOrbCount", label: "Orb Count", type: "int", default: 10, min: 0, max: 16, step: 1, group: "Dark Slash", modes: ["dark_slash"] },
+    { key: "darkDuration", label: "Cycle Duration (s)", type: "float", default: 0.7, min: 0.1, max: 2, step: 0.05, group: "Dark Slash", modes: ["dark_slash"] },
+
+    { key: "barrierMoteCount", label: "Mote Count", type: "int", default: 14, min: 0, max: 20, step: 1, group: "Barrier", modes: ["barrier"] },
+    { key: "barrierPulseSpeed", label: "Pulse Speed", type: "float", default: 1.2, min: 0.1, max: 5, step: 0.05, group: "Barrier", modes: ["barrier"] },
+
+    { key: "fireballDuration", label: "Travel Duration (s)", type: "float", default: 0.9, min: 0.05, max: 3, step: 0.01, group: "Fireball", modes: ["fireball"] },
+    { key: "fireballEmberCount", label: "Ember Count", type: "int", default: 12, min: 0, max: 16, step: 1, group: "Fireball", modes: ["fireball"] },
+
+    { key: "windSlashDuration", label: "Travel Duration (s)", type: "float", default: 0.35, min: 0.02, max: 2, step: 0.01, group: "Wind Slash", modes: ["wind_slash"] },
+    { key: "windSlashTrailCount", label: "Afterimage Trails", type: "int", default: 3, min: 0, max: 5, step: 1, group: "Wind Slash", modes: ["wind_slash"] },
+
+    { key: "rockThrowDuration", label: "Travel Duration (s)", type: "float", default: 0.8, min: 0.05, max: 3, step: 0.01, group: "Rock Throw", modes: ["rock_throw"] },
+    { key: "rockThrowDustCount", label: "Dust Count", type: "int", default: 10, min: 0, max: 16, step: 1, group: "Rock Throw", modes: ["rock_throw"] },
+
+    { key: "lightningBoltDuration", label: "Flash Duration (s)", type: "float", default: 0.25, min: 0.02, max: 1.5, step: 0.01, group: "Lightning Bolt", modes: ["lightning_bolt"] },
+    { key: "lightningBoltBranches", label: "Branch Count", type: "int", default: 3, min: 0, max: 4, step: 1, group: "Lightning Bolt", modes: ["lightning_bolt"] },
+
+    { key: "waterJetDuration", label: "Travel Duration (s)", type: "float", default: 0.7, min: 0.05, max: 3, step: 0.01, group: "Water Jet", modes: ["water_jet"] },
+    { key: "waterJetDropCount", label: "Splash Drop Count", type: "int", default: 14, min: 0, max: 20, step: 1, group: "Water Jet", modes: ["water_jet"] },
+
+    { key: "iceShardDuration", label: "Travel Duration (s)", type: "float", default: 0.8, min: 0.05, max: 3, step: 0.01, group: "Ice Shard", modes: ["ice_shard"] },
+    { key: "iceShardSparkCount", label: "Frost Spark Count", type: "int", default: 10, min: 0, max: 12, step: 1, group: "Ice Shard", modes: ["ice_shard"] },
+
+    { key: "poisonOrbDuration", label: "Travel Duration (s)", type: "float", default: 1.0, min: 0.05, max: 3, step: 0.01, group: "Poison Orb", modes: ["poison_orb"] },
+    { key: "poisonOrbSporeCount", label: "Spore Count", type: "int", default: 12, min: 0, max: 16, step: 1, group: "Poison Orb", modes: ["poison_orb"] },
+
+    { key: "darkOrbDuration", label: "Travel Duration (s)", type: "float", default: 0.8, min: 0.05, max: 3, step: 0.01, group: "Dark Orb", modes: ["dark_orb"] },
+    { key: "darkOrbTentacleCount", label: "Tentacle Count", type: "int", default: 3, min: 0, max: 4, step: 1, group: "Dark Orb", modes: ["dark_orb"] },
+
+    { key: "lightArrowDuration", label: "Travel Duration (s)", type: "float", default: 0.35, min: 0.02, max: 2, step: 0.01, group: "Light Arrow", modes: ["light_arrow"] },
+
+    { key: "bubbleBurstDuration", label: "Travel Duration (s)", type: "float", default: 0.9, min: 0.05, max: 3, step: 0.01, group: "Bubble Burst", modes: ["bubble_burst"] },
+    { key: "bubbleBurstTrailCount", label: "Trail Bubble Count", type: "int", default: 10, min: 0, max: 16, step: 1, group: "Bubble Burst", modes: ["bubble_burst"] },
+
     ...comboLayerParams(2, { element: "water", shape: "wave" }),
     ...comboLayerParams(3, { element: "wind", shape: "spiral" }),
     ...comboLayerParams(4, { element: "lightning", shape: "beam" }),
 
-    { key: "cameraDistance", label: "Camera Distance", type: "float", default: 5.5, min: 2, max: 15, step: 0.1, group: "Preview Camera" },
-    { key: "cameraOrbitSpeed", label: "Camera Orbit Speed", type: "float", default: 18, min: -180, max: 180, step: 1, group: "Preview Camera" },
+    { key: "cameraDistance", label: "Camera Distance", type: "float", default: 3.5, min: 2, max: 15, step: 0.1, group: "Preview Camera" },
+    { key: "cameraOrbitSpeed", label: "Camera Orbit Speed", type: "float", default: 3, min: -180, max: 180, step: 1, group: "Preview Camera" },
     { key: "showGrid", label: "Show Grid", type: "bool", default: true, group: "Preview Camera" },
   ],
 };
@@ -172,6 +235,32 @@ function buildParamsBlock(params: EffectParams): string {
     .trailFade = ${fmtFloat(params.trailFade)},
     .windHelixHeight = ${fmtFloat(params.windHelixHeight)}, .windHelixTurns = ${fmtFloat(params.windHelixTurns)}, .windRibbonWidth = ${fmtFloat(params.windRibbonWidth)},
     .windFunnelLines = ${fmtInt(params.windFunnelLines)},
+    .waterRingCount = ${fmtInt(params.waterRingCount)},
+    .waterRingDuration = ${fmtFloat(params.waterRingDuration)}, .waterRingStagger = ${fmtFloat(params.waterRingStagger)},
+    .waterRingCrestHeight = ${fmtFloat(params.waterRingCrestHeight)}, .waterRingThickness = ${fmtFloat(params.waterRingThickness)},
+    .earthBurstRockCount = ${fmtInt(params.earthBurstRockCount)}, .earthBurstCrackCount = ${fmtInt(params.earthBurstCrackCount)},
+    .earthBurstDuration = ${fmtFloat(params.earthBurstDuration)},
+    .fireBurstEmberCount = ${fmtInt(params.fireBurstEmberCount)},
+    .fireBurstDuration = ${fmtFloat(params.fireBurstDuration)}, .fireBurstColumnHeight = ${fmtFloat(params.fireBurstColumnHeight)},
+    .lightningBoltCount = ${fmtInt(params.lightningBoltCount)},
+    .lightningBoltLife = ${fmtFloat(params.lightningBoltLife)}, .lightningJitter = ${fmtFloat(params.lightningJitter)}, .lightningHeight = ${fmtFloat(params.lightningHeight)},
+    .poisonRingCount = ${fmtInt(params.poisonRingCount)}, .poisonBubbleCount = ${fmtInt(params.poisonBubbleCount)},
+    .poisonDuration = ${fmtFloat(params.poisonDuration)},
+    .healCrossCount = ${fmtInt(params.healCrossCount)},
+    .healCycleDuration = ${fmtFloat(params.healCycleDuration)}, .healPillarHeight = ${fmtFloat(params.healPillarHeight)},
+    .darkTentacleCount = ${fmtInt(params.darkTentacleCount)}, .darkOrbCount = ${fmtInt(params.darkOrbCount)},
+    .darkDuration = ${fmtFloat(params.darkDuration)},
+    .barrierMoteCount = ${fmtInt(params.barrierMoteCount)}, .barrierPulseSpeed = ${fmtFloat(params.barrierPulseSpeed)},
+    .fireballDuration = ${fmtFloat(params.fireballDuration)}, .fireballEmberCount = ${fmtInt(params.fireballEmberCount)},
+    .windSlashDuration = ${fmtFloat(params.windSlashDuration)}, .windSlashTrailCount = ${fmtInt(params.windSlashTrailCount)},
+    .rockThrowDuration = ${fmtFloat(params.rockThrowDuration)}, .rockThrowDustCount = ${fmtInt(params.rockThrowDustCount)},
+    .lightningBoltDuration = ${fmtFloat(params.lightningBoltDuration)}, .lightningBoltBranches = ${fmtInt(params.lightningBoltBranches)},
+    .waterJetDuration = ${fmtFloat(params.waterJetDuration)}, .waterJetDropCount = ${fmtInt(params.waterJetDropCount)},
+    .iceShardDuration = ${fmtFloat(params.iceShardDuration)}, .iceShardSparkCount = ${fmtInt(params.iceShardSparkCount)},
+    .poisonOrbDuration = ${fmtFloat(params.poisonOrbDuration)}, .poisonOrbSporeCount = ${fmtInt(params.poisonOrbSporeCount)},
+    .darkOrbDuration = ${fmtFloat(params.darkOrbDuration)}, .darkOrbTentacleCount = ${fmtInt(params.darkOrbTentacleCount)},
+    .lightArrowDuration = ${fmtFloat(params.lightArrowDuration)},
+    .bubbleBurstDuration = ${fmtFloat(params.bubbleBurstDuration)}, .bubbleBurstTrailCount = ${fmtInt(params.bubbleBurstTrailCount)},
     .cameraDistance = ${fmtFloat(params.cameraDistance)},
     .cameraOrbitSpeed = ${fmtFloat(params.cameraOrbitSpeed)},
     .showGrid = ${params.showGrid ? "1" : "0"},
@@ -210,6 +299,24 @@ const SHAPE_ENUM_MAP: Record<string, string> = {
   fire_orbs: "BURST_SHAPE_FIRE_ORBS",
   wind_spin: "BURST_SHAPE_WIND_SPIN",
   fire_wind: "BURST_SHAPE_FIRE_WIND",
+  water_ring: "BURST_SHAPE_WATER_RING",
+  earth_burst: "BURST_SHAPE_EARTH_BURST",
+  fire_burst: "BURST_SHAPE_FIRE_BURST",
+  lightning_burst: "BURST_SHAPE_LIGHTNING_BURST",
+  poison_burst: "BURST_SHAPE_POISON_BURST",
+  heal_aura: "BURST_SHAPE_HEAL_AURA",
+  dark_slash: "BURST_SHAPE_DARK_SLASH",
+  barrier: "BURST_SHAPE_BARRIER",
+  fireball: "BURST_SHAPE_FIREBALL",
+  wind_slash: "BURST_SHAPE_WIND_SLASH",
+  rock_throw: "BURST_SHAPE_ROCK_THROW",
+  lightning_bolt: "BURST_SHAPE_LIGHTNING_BOLT",
+  water_jet: "BURST_SHAPE_WATER_JET",
+  ice_shard: "BURST_SHAPE_ICE_SHARD",
+  poison_orb: "BURST_SHAPE_POISON_ORB",
+  dark_orb: "BURST_SHAPE_DARK_ORB",
+  light_arrow: "BURST_SHAPE_LIGHT_ARROW",
+  bubble_burst: "BURST_SHAPE_BUBBLE_BURST",
 };
 
 function buildEnumaIchorPreset(params: EffectParams): string {

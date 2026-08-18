@@ -212,6 +212,25 @@ function sampleAtelierShapePoints(shape: string, count: number, t: number, seed:
         pos = v3(Math.sin(angle) * r, 0.6 + Math.sin(frac * Math.PI) * radius, Math.cos(angle) * r);
         break;
       }
+      case "water_ring": {
+        // Rough preview only — the real wave-wall geometry lives in
+        // EB_DrawWaterRingMesh (native/effects/effect_atelier.h). Here we just
+        // approximate several rings expanding outward from a stomp at t=0,
+        // looping every waterRingDuration seconds.
+        const ringCount = Math.max(1, Math.round(Number(p.waterRingCount ?? 4)));
+        const duration = Math.max(0.05, Number(p.waterRingDuration ?? 0.9));
+        const stagger = Number(p.waterRingStagger ?? 0.09);
+        const ring = i % ringCount;
+        const ptOnRing = Math.floor(i / ringCount);
+        const ptsPerRing = Math.max(1, Math.round(count / ringCount));
+        const angle = (ptOnRing / ptsPerRing) * Math.PI * 2;
+        const loopT = t % loopInterval;
+        const lt = Math.max(0, loopT - ring * stagger);
+        const rt = Math.min(1, lt / duration);
+        const r = radius * (1 - (1 - rt) * (1 - rt));
+        pos = v3(Math.sin(angle) * r, 0.02, Math.cos(angle) * r);
+        break;
+      }
       default: {
         const theta = rand * Math.PI * 2 + t * 0.3;
         const phi = Math.acos(2 * rand2 - 1);
