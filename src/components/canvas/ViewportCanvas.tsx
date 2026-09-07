@@ -3,20 +3,66 @@ import { useAppStore } from "@/store/useAppStore";
 import { wasmBridge } from "@/lib/wasmBridge";
 import { MockRenderer } from "@/lib/mockRenderer";
 import { CameraCapture } from "@/lib/cameraCapture";
+import { computeReframeOutputSize } from "@/lib/reframeOutputSize";
 
-// Sized against the full viewport, not just canvas.clientWidth/clientHeight —
-// the container's measured size can lag one frame behind on first paint
-// (flex layout still settling, panels not yet at final width), which used
-// to leave the render target smaller than the visible box with checker
-// background showing through the uncovered strip. The container can never
-// be larger than the viewport, so backing store is always big enough to
-// cover it; it just downscales visually via the canvas's own w-full/h-full
-// CSS, which is harmless for a preview render.
+function getStage(el: HTMLElement): HTMLElement | null {
+  return el.parentElement?.parentElement?.parentElement ?? null;
+}
+
+function stageCSSSize(el: HTMLElement): { width: number; height: number } {
+  const stage = getStage(el);
+  if (stage && stage.clientWidth > 0 && stage.clientHeight > 0) {
+    return { width: stage.clientWidth, height: stage.clientHeight };
+  }
+  return { width: window.innerWidth, height: window.innerHeight };
+}
+
 function containerPixelSize(canvas: HTMLCanvasElement) {
   const dpr = Math.min(2, window.devicePixelRatio || 1);
-  const width = Math.max(canvas.clientWidth, window.innerWidth);
-  const height = Math.max(canvas.clientHeight, window.innerHeight);
-  return { width: Math.round(width * dpr), height: Math.round(height * dpr) };
+  const css = stageCSSSize(canvas);
+  return { width: Math.round(css.width * dpr), height: Math.round(css.height * dpr) };
+}
+
+function resolveCanvasSize(contentWidth: number, contentHeight: number): [number, number] {
+  const state = useAppStore.getState();
+  if (state.activeEffect !== "reframe") return [contentWidth, contentHeight];
+  return computeReframeOutputSize(contentWidth, contentHeight, state.paramsByEffect.reframe?.aspectPreset);
+}
+
+function applyCanvasSize(
+  canvas: HTMLCanvasElement,
+  contentWidth: number,
+  contentHeight: number,
+) {
+  if (contentWidth <= 0 || contentHeight <= 0) return;
+  const [width, height] = resolveCanvasSize(contentWidth, contentHeight);
+
+  // Set pixel dims and tell wasm
+  if (canvas.width !== width || canvas.height !== height) {
+    canvas.width = width;
+    canvas.height = height;
+    wasmBridge.setCanvasSize(width, height);
+  }
+
+  // CSS: fix the canvas to its exact pixel size in logical px.
+  // The transformRef applies scale() on top, so "fit" = scale(1) means
+  // the canvas renders at its natural size; we just need to stop it from
+  // stretching to fill the flex container.
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const cssW = width / dpr;
+  const cssH = height / dpr;
+
+  // For "fit" zoom, scale the canvas so it fits within the stage.
+  const { zoom } = useAppStore.getState();
+  if (zoom === "fit") {
+    const stage = stageCSSSize(canvas);
+    const scale = Math.min(stage.width / cssW, stage.height / cssH, 1);
+    canvas.style.width = `${Math.round(cssW * scale)}px`;
+    canvas.style.height = `${Math.round(cssH * scale)}px`;
+  } else {
+    canvas.style.width = `${Math.round(cssW)}px`;
+    canvas.style.height = `${Math.round(cssH)}px`;
+  }
 }
 
 function watchDevicePixelRatio(onChange: () => void) {
@@ -34,16 +80,12 @@ function watchDevicePixelRatio(onChange: () => void) {
 export function ViewportCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rendererRef = useRef<MockRenderer | null>(null);
-  // Native render resolution. Normally tracks the container's CSS size (see
-  // the ResizeObserver-driven resync below); while a video is loaded it's
-  // pinned to the video's own pixel dimensions instead, so the full frame
-  // renders — and every effect, which samples g_sceneTarget at whatever
-  // size it was drawn at — covers the whole thing instead of a
-  // cropped/stretched slice.
   const videoDimsRef = useRef<{ width: number; height: number } | null>(null);
+  const contentDimsRef = useRef<{ width: number; height: number } | null>(null);
 
   const activeEffect = useAppStore((s) => s.activeEffect);
   const params = useAppStore((s) => s.paramsByEffect[s.activeEffect]);
+  const zoom = useAppStore((s) => s.zoom);
   const setStats = useAppStore((s) => s.setStats);
   const videoFrames = useAppStore((s) => s.video.frames);
   const cameraActive = useAppStore((s) => s.camera.active);
@@ -51,49 +93,40 @@ export function ViewportCanvas() {
   const setCameraActive = useAppStore((s) => s.setCameraActive);
   const setCameraError = useAppStore((s) => s.setCameraError);
 
-  // Sized synchronously before first paint (useLayoutEffect, not useEffect)
-  // so the canvas never briefly renders at its default 300x150 box on
-  // mount — every subsequent layout change (panel resize, window resize,
-  // moving the window to a display with a different DPR, fonts finishing
-  // load) is caught by the ResizeObserver/DPR watcher below.
   useLayoutEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    // Tracks the size we last told the container about, independently of
-    // reading back canvas.width/height — the wasm module's own GL/canvas
-    // bootstrapping can rewrite those attributes to match its internal
-    // render target without going through js_set_canvas_size, which made
-    // comparing against the live attribute a false "already in sync" and
-    // left the native render target permanently narrower than the visible
-    // canvas (content cut off, checker background showing through the
-    // uncovered strip) until something else happened to nudge the values
-    // out of agreement again.
-    let lastSize: { width: number; height: number } | null = null;
+    let lastContent: { width: number; height: number } | null = null;
 
     const resize = () => {
-      if (videoDimsRef.current) return; // video drives resolution while active
+      const srcDims = videoDimsRef.current;
+      if (srcDims) {
+        applyCanvasSize(canvas, srcDims.width, srcDims.height);
+        return;
+      }
       const { width, height } = containerPixelSize(canvas);
-      if (width <= 0 || height <= 0) return; // parent not laid out yet — wait for a real measurement
-      const unchanged = lastSize?.width === width && lastSize?.height === height;
-      const nativeInSync = canvas.width === width && canvas.height === height;
-      if (unchanged && nativeInSync) return;
-      lastSize = { width, height };
-      canvas.width = width;
-      canvas.height = height;
-      wasmBridge.setCanvasSize(width, height);
+      if (width <= 0 || height <= 0) return;
+      const [targetW, targetH] = resolveCanvasSize(width, height);
+      const nativeInSync = canvas.width === targetW && canvas.height === targetH;
+      const sameContent = lastContent?.width === width && lastContent?.height === height;
+      if (sameContent && nativeInSync) return;
+      lastContent = { width, height };
+      contentDimsRef.current = { width, height };
+      applyCanvasSize(canvas, width, height);
     };
     resize();
 
+    const stage = getStage(canvas);
     const observer = new ResizeObserver(resize);
-    observer.observe(canvas);
+    observer.observe(stage ?? canvas);
     const unwatchDpr = watchDevicePixelRatio(resize);
 
     let disposed = false;
     wasmBridge.attach(canvas).then((mode) => {
       if (disposed) return;
-      lastSize = null; // force a fresh sync: the module's own boot may have rewritten canvas.width/height
-      resize(); // re-check: layout may have settled further during the async attach()
+      lastContent = null;
+      resize();
       if (mode === "mock") {
         const renderer = new MockRenderer(canvas);
         renderer.setStatsListener(setStats);
@@ -102,13 +135,9 @@ export function ViewportCanvas() {
         rendererRef.current = renderer;
       } else {
         wasmBridge.onStats(setStats);
-        // main()/InitWindow can run asynchronously just after attach()
-        // resolves and silently rewrite canvas.width/height to its own
-        // fixed startup resolution — resync a couple of frames out to
-        // catch that without needing to poll indefinitely.
         requestAnimationFrame(() => {
           if (disposed) return;
-          lastSize = null;
+          lastContent = null;
           resize();
         });
       }
@@ -125,20 +154,40 @@ export function ViewportCanvas() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // push param/effect changes to whichever backend is active
   useEffect(() => {
     if (rendererRef.current) {
       rendererRef.current.setEffect(activeEffect, params);
     } else {
       wasmBridge.updateParams(activeEffect, params);
     }
+    const canvas = canvasRef.current;
+    const contentDims = contentDimsRef.current;
+    if (canvas && contentDims) {
+      applyCanvasSize(canvas, contentDims.width, contentDims.height);
+    }
   }, [activeEffect, params]);
 
-  // when a video is loaded/cleared, size the canvas to the video's native
-  // resolution (or back to the container's, once cleared) and hand the
-  // frames to whichever backend is active so the effect samples the video
-  // instead of the synthetic startup scene (mock reads ImageBitmaps
-  // directly; wasm decodes them to RGBA8)
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const contentDims = contentDimsRef.current;
+    if (!contentDims) return;
+    const [w, h] = resolveCanvasSize(contentDims.width, contentDims.height);
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const cssW = w / dpr;
+    const cssH = h / dpr;
+    const { zoom: currentZoom } = useAppStore.getState();
+    if (currentZoom === "fit") {
+      const stage = stageCSSSize(canvas);
+      const scale = Math.min(stage.width / cssW, stage.height / cssH, 1);
+      canvas.style.width = `${Math.round(cssW * scale)}px`;
+      canvas.style.height = `${Math.round(cssH * scale)}px`;
+    } else {
+      canvas.style.width = `${Math.round(cssW)}px`;
+      canvas.style.height = `${Math.round(cssH)}px`;
+    }
+  }, [zoom]);
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -149,19 +198,13 @@ export function ViewportCanvas() {
         : null;
 
     const dims = videoDimsRef.current ?? containerPixelSize(canvas);
-    canvas.width = dims.width;
-    canvas.height = dims.height;
-    wasmBridge.setCanvasSize(dims.width, dims.height);
+    contentDimsRef.current = dims;
+    applyCanvasSize(canvas, dims.width, dims.height);
 
     rendererRef.current?.setSourceFrames(videoFrames);
     wasmBridge.setVideoFrames(videoFrames);
   }, [videoFrames]);
 
-  // Camera lifecycle: mirrors the video-file effect above, but for a live
-  // getUserMedia feed instead of pre-decoded frames. Runs its own rAF loop
-  // (independent of the timeline-driven one below, since a camera has no
-  // scrub position — it just always shows "now") that pushes the current
-  // frame to whichever backend is active every tick.
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || !cameraActive) return;
@@ -175,9 +218,8 @@ export function ViewportCanvas() {
       .then((videoEl) => {
         if (cancelled) return;
         videoDimsRef.current = { width: videoEl.videoWidth, height: videoEl.videoHeight };
-        canvas.width = videoEl.videoWidth;
-        canvas.height = videoEl.videoHeight;
-        wasmBridge.setCanvasSize(videoEl.videoWidth, videoEl.videoHeight);
+        contentDimsRef.current = videoDimsRef.current;
+        applyCanvasSize(canvas, videoEl.videoWidth, videoEl.videoHeight);
         rendererRef.current?.setCameraSource(videoEl);
 
         const tick = () => {
@@ -186,12 +228,6 @@ export function ViewportCanvas() {
           } else {
             wasmBridge.pushCameraFrame(videoEl);
           }
-
-          // Nada más que empujar por rAF: la detección de manos del efecto
-          // "touchdesigner" corre sola en C (OpenCV) leyendo el mismo frame
-          // que pushCameraFrame acaba de mandar arriba — ver TD_DetectHands
-          // en native/effects/touchdesigner/touchdesigner_effect.h.
-
           rafId = requestAnimationFrame(tick);
         };
         rafId = requestAnimationFrame(tick);
@@ -211,14 +247,11 @@ export function ViewportCanvas() {
       wasmBridge.clearCameraFrame();
       videoDimsRef.current = null;
       const dims = containerPixelSize(canvas);
-      canvas.width = dims.width;
-      canvas.height = dims.height;
-      wasmBridge.setCanvasSize(dims.width, dims.height);
+      contentDimsRef.current = dims;
+      applyCanvasSize(canvas, dims.width, dims.height);
     };
   }, [cameraActive, cameraFacingMode, setCameraActive, setCameraError]);
 
-  // once video frames are active, drive the sampled frame from the shared
-  // timeline (play/pause/scrub) instead of the renderer's own free-running clock
   useEffect(() => {
     let lastFrame = -1;
     const unsubscribe = useAppStore.subscribe((state) => {
@@ -237,5 +270,5 @@ export function ViewportCanvas() {
     return unsubscribe;
   }, []);
 
-  return <canvas ref={canvasRef} id="canvas" className="block h-full w-full" />;
+  return <canvas ref={canvasRef} id="canvas" className="block" />;
 }

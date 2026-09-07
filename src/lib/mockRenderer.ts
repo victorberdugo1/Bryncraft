@@ -453,6 +453,9 @@ export class MockRenderer {
       case "effect_atelier":
         this.renderEffectAtelier(w, h, dt);
         break;
+      case "reframe":
+        this.renderReframe(w, h, now);
+        break;
     }
 
     const gpuFrameTimeMs = performance.now() - gpuStart;
@@ -1102,6 +1105,61 @@ export class MockRenderer {
     ctx.fillStyle = "rgba(11,11,14,0.65)";
     ctx.fillRect(0, h - metrics.actualBoundingBoxAscent - paddingY * 2, metrics.width + paddingX * 2, metrics.actualBoundingBoxAscent + paddingY * 2);
     ctx.fillStyle = "#8CEBFF";
+    ctx.fillText(label, paddingX, h - paddingY);
+    ctx.restore();
+  }
+
+  private renderReframe(w: number, h: number, t: number) {
+    const ctx = this.ctx;
+
+    ctx.fillStyle = "#000000";
+    ctx.fillRect(0, 0, w, h);
+
+    const preset = String(this.params.aspectPreset ?? "9:16");
+    const source = this.currentSourceFrame;
+    if (this.frame % 60 === 0) console.log(`[reframe] canvas=${w}x${h} preset=${preset} source=${source ? this.sourceDims(source as any).width + "x" + this.sourceDims(source as any).height : "none"}`);
+
+    if (source) {
+      const { width: sw, height: sh } = this.sourceDims(source);
+
+      const zoom = Number(this.params.zoom ?? 1.15);
+      const headroom = Number(this.params.headroom ?? 0.12);
+      const swing = (Math.sin(t * 0.0008) + 1) / 2;
+
+      const maxCropW = sw / zoom;
+      const maxCropH = sh / zoom;
+      let cropW = maxCropH * (w / h);
+      let cropH = maxCropH;
+      if (cropW > maxCropW) {
+        cropW = maxCropW;
+        cropH = maxCropW * (h / w);
+      }
+      const panX = Math.max(0, (maxCropW - cropW) * swing);
+      const panY = Math.max(0, (maxCropH - cropH) * headroom);
+      ctx.drawImage(source as CanvasImageSource, panX, panY, cropW, cropH, 0, 0, w, h);
+    } else {
+      const grad = ctx.createLinearGradient(0, 0, w, h);
+      grad.addColorStop(0, "#1b3a44");
+      grad.addColorStop(1, "#0b0b0e");
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, w, h);
+      this.paintWaveScene(ctx, w, h, t, "#44D4FF");
+    }
+
+    ctx.strokeStyle = "#FFC83C";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(1, 1, w - 2, h - 2);
+
+    const label = `Reframe ${preset} — build/run the WASM renderer for face tracking`;
+    ctx.save();
+    ctx.font = `${Math.max(12, Math.round(w * 0.014))}px ${ASCII_FONT_STACK}`;
+    ctx.textBaseline = "bottom";
+    const paddingX = 12;
+    const paddingY = 10;
+    const metrics = ctx.measureText(label);
+    ctx.fillStyle = "rgba(11,11,14,0.65)";
+    ctx.fillRect(0, h - metrics.actualBoundingBoxAscent - paddingY * 2, metrics.width + paddingX * 2, metrics.actualBoundingBoxAscent + paddingY * 2);
+    ctx.fillStyle = "#FFC83C";
     ctx.fillText(label, paddingX, h - paddingY);
     ctx.restore();
   }

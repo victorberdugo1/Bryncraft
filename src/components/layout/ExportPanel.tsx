@@ -132,6 +132,7 @@ export function ExportPanel({ trigger }: ExportPanelProps) {
   const setPlaying = useAppStore((s) => s.setPlaying);
   const setCurrentFrame = useAppStore((s) => s.setCurrentFrame);
   const videoFrameCount = useAppStore((s) => s.video.frames?.length ?? 0);
+  const videoDuration = useAppStore((s) => s.video.duration);
   const activeEffect = useAppStore((s) => s.activeEffect);
 
   const runIdRef = useRef(0);
@@ -220,8 +221,13 @@ export function ExportPanel({ trigger }: ExportPanelProps) {
     const isSnapshotFormat = format === "png-sequence" || format === "mov-alpha";
     const frameIntervalMs = Math.max(1, 1000 / Math.max(1, timeline.fps));
 
+    // The canvas is already sized to the effect's real output resolution
+    // (see ViewportCanvas, which resizes it to the reframe target aspect
+    // when that effect is active) — capture it at face value.
+    const [exportW, exportH] = [canvas.width, canvas.height];
+
     startExport(format, totalFrames);
-    const started = await wasmBridge.startRecording(canvas.width, canvas.height, timeline.fps, format);
+    const started = await wasmBridge.startRecording(exportW, exportH, timeline.fps, format);
     if (!started) {
       cancelExport();
       return;
@@ -241,28 +247,21 @@ export function ExportPanel({ trigger }: ExportPanelProps) {
 
     try {
       if (hasVideo) {
-        // Deterministic export: step through every imported video frame one
-        // by one (independent of real time), so ALL frames get rendered
-        // with the effect and captured — not just whatever frame happened
-        // to be showing when Export was clicked.
+        const exportStart = performance.now();
         let lastPresentedCount = wasmBridge.getPresentedFrameCount();
         for (let i = 0; i < totalFrames; i++) {
           if (!stillCurrent()) return;
           setCurrentFrame(i);
-          // Confirm raylib actually drew a new frame for this timeline
-          // position before grabbing it — ground truth from the renderer,
-          // not a guess from canvas pixels (see waitForPresentedFrame above).
           lastPresentedCount = await waitForPresentedFrame(lastPresentedCount);
 
           if (isSnapshotFormat) {
-            // Captures, verifies the result isn't blank, and retries until
-            // it's confirmed — see captureCurrentFrameOrThrow above.
             await captureCurrentFrameOrThrow(i);
           } else {
-            // mp4/webm: MediaRecorder samples the live canvas stream, so the
-            // frame needs to stay on screen long enough to actually get
-            // grabbed at the target fps.
-            await sleep(frameIntervalMs);
+            wasmBridge.requestFrame();
+            const targetTimeMs = (i + 1) * frameIntervalMs;
+            const elapsed = performance.now() - exportStart;
+            const remaining = targetTimeMs - elapsed;
+            await sleep(Math.max(4, remaining));
           }
           updateExportProgress(i + 1, ((totalFrames - i - 1) * frameIntervalMs) / 1000);
         }
@@ -292,7 +291,8 @@ export function ExportPanel({ trigger }: ExportPanelProps) {
       if (!stillCurrent()) return;
       updateExportProgress(totalFrames, 0);
       const filename = format === "mp4" ? "export.mp4" : format === "webm" ? "export.webm" : format === "mov-alpha" ? "export.mov" : "export.png";
-      await wasmBridge.stopRecording(filename);
+      const exactDurationSeconds = totalFrames / Math.max(1, timeline.fps);
+      await wasmBridge.stopRecording(filename, exactDurationSeconds);
       finishExport();
     } catch (err) {
       console.error("[ExportPanel] export failed:", err);

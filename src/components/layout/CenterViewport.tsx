@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ViewportCanvas } from "@/components/canvas/ViewportCanvas";
 import { useAppStore, type ZoomMode } from "@/store/useAppStore";
 import { Button } from "@/components/ui/button";
@@ -7,7 +7,15 @@ import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/compone
 import { Download, Upload, X, Camera, CameraOff, SwitchCamera } from "lucide-react";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { cn } from "@/lib/utils";
-import { DESKTOP_MEMORY_BUDGET_BYTES, MOBILE_MEMORY_BUDGET_BYTES, getVideoMetadata, needsQualityChoice } from "@/lib/videoFrameExtractor";
+import {
+  MOBILE_MEMORY_BUDGET_BYTES,
+  getVideoMetadata,
+  needsQualityChoice,
+  getHighQualityMemoryBudgetBytes,
+  previewExtractionPlan,
+  formatBytes,
+  type VideoMetadata,
+} from "@/lib/videoFrameExtractor";
 
 const ZOOM_LEVELS: { id: ZoomMode; label: string }[] = [
   { id: "fit", label: "Fit" },
@@ -57,8 +65,11 @@ export function CenterViewport() {
   const [isPanning, setIsPanning] = useState(false);
   const [isDraggingSpawn, setIsDraggingSpawn] = useState(false);
   // Video whose import is pending desktop-quality confirmation (see
-  // handleFileChange). null when no confirmation dialog is showing.
-  const [pendingVideoFile, setPendingVideoFile] = useState<File | null>(null);
+  // handleFileChange), plus the metadata already fetched to decide whether
+  // to show the dialog — reused to preview real numbers for each option
+  // instead of asking the user to choose blind. null when no confirmation
+  // dialog is showing.
+  const [pendingVideo, setPendingVideo] = useState<{ file: File; metadata: VideoMetadata } | null>(null);
 
   const spawnX = Number(spawnParams.spawnX ?? 0.5);
   const spawnY = Number(spawnParams.spawnY ?? 0.8);
@@ -78,7 +89,7 @@ export function CenterViewport() {
     try {
       const metadata = await getVideoMetadata(file);
       if (needsQualityChoice(metadata, MOBILE_MEMORY_BUDGET_BYTES)) {
-        setPendingVideoFile(file);
+        setPendingVideo({ file, metadata });
       } else {
         void loadVideo(file, MOBILE_MEMORY_BUDGET_BYTES);
       }
@@ -89,17 +100,30 @@ export function CenterViewport() {
     }
   };
 
+  // Precomputed once per pending file so both the "recomendada" and "alta
+  // calidad" rows in the dialog show real resolution/fps/size numbers
+  // instead of vague reassurance — and so "alta calidad" is honest about it
+  // when even its (adaptive, RAM-aware) budget still can't fit the file at
+  // its original resolution/fps.
+  const pendingPreviews = useMemo(() => {
+    if (!pendingVideo) return null;
+    return {
+      recommended: previewExtractionPlan(pendingVideo.metadata, MOBILE_MEMORY_BUDGET_BYTES),
+      highQuality: previewExtractionPlan(pendingVideo.metadata, getHighQualityMemoryBudgetBytes()),
+    };
+  }, [pendingVideo]);
+
   const confirmHighQualityImport = () => {
-    if (pendingVideoFile) void loadVideo(pendingVideoFile, DESKTOP_MEMORY_BUDGET_BYTES);
-    setPendingVideoFile(null);
+    if (pendingVideo) void loadVideo(pendingVideo.file, getHighQualityMemoryBudgetBytes());
+    setPendingVideo(null);
   };
 
   const confirmRecommendedImport = () => {
-    if (pendingVideoFile) void loadVideo(pendingVideoFile, MOBILE_MEMORY_BUDGET_BYTES);
-    setPendingVideoFile(null);
+    if (pendingVideo) void loadVideo(pendingVideo.file, MOBILE_MEMORY_BUDGET_BYTES);
+    setPendingVideo(null);
   };
 
-  const cancelHighQualityImport = () => setPendingVideoFile(null);
+  const cancelHighQualityImport = () => setPendingVideo(null);
 
   // Drag-to-pan: mousedown anywhere on the stage (except the spawn handle,
   // which stops propagation on its own pointerdown) starts tracking; the
@@ -318,7 +342,7 @@ export function CenterViewport() {
       >
         <div
           ref={transformRef}
-          className="h-full w-full origin-center"
+          className="flex h-full w-full origin-center items-center justify-center"
           style={{
             transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoomScale})`,
             transition: isPanning ? "none" : "transform 150ms ease-out",
@@ -380,14 +404,36 @@ export function CenterViewport() {
         )}
       </div>
 
-      <Dialog open={pendingVideoFile !== null} onOpenChange={(open) => !open && cancelHighQualityImport()}>
+      <Dialog open={pendingVideo !== null} onOpenChange={(open) => !open && cancelHighQualityImport()}>
         <DialogContent>
           <DialogTitle className="text-sm font-semibold">¿Cómo importar el video?</DialogTitle>
           <DialogDescription className="text-[11px] text-muted-foreground">
-            Estás en desktop, así que podemos usar un límite de memoria más alto que en móvil y
-            mantener mejor la resolución y los fps originales del video. Eso sí, puede hacer que
-            la importación tarde un poco más, sobre todo con videos largos o pesados.
+            Este video es demasiado largo/pesado para importarlo completo a resolución y fps
+            originales dentro de un límite de memoria seguro — hay que reducir uno de los dos.
+            "Alta calidad" usa el límite más alto que tu equipo puede manejar con seguridad, sin
+            arriesgarse a colgar la pestaña.
           </DialogDescription>
+          {pendingVideo && pendingPreviews && (
+            <div className="mt-3 space-y-2 text-[11px]">
+              <div className="rounded-md border border-border/80 bg-panel/60 px-2.5 py-2">
+                <div className="font-medium text-foreground">Calidad recomendada</div>
+                <div className="text-muted-foreground">
+                  {pendingPreviews.recommended.width}×{pendingPreviews.recommended.height} @{" "}
+                  {pendingPreviews.recommended.fps}fps · ~{formatBytes(pendingPreviews.recommended.estimatedBytes)}
+                </div>
+              </div>
+              <div className="rounded-md border border-accent/40 bg-panel/60 px-2.5 py-2">
+                <div className="font-medium text-foreground">Alta calidad</div>
+                <div className="text-muted-foreground">
+                  {pendingPreviews.highQuality.width}×{pendingPreviews.highQuality.height} @{" "}
+                  {pendingPreviews.highQuality.fps}fps · ~{formatBytes(pendingPreviews.highQuality.estimatedBytes)}
+                  {pendingPreviews.highQuality.isFullQuality
+                    ? " — resolución y fps originales"
+                    : ` — original era ${pendingVideo.metadata.width}×${pendingVideo.metadata.height}, sigue sin caber completo ni con el límite alto`}
+                </div>
+              </div>
+            </div>
+          )}
           <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
             <Button size="sm" variant="ghost" onClick={cancelHighQualityImport}>
               Cancelar

@@ -23,8 +23,9 @@ declare global {
     VideoExportJS?: {
       startEncoder: (w: number, h: number, fps: number, format?: ExportFormat) => boolean | Promise<boolean>;
       captureFrame: (frameIndex?: number) => Promise<boolean>;
-      finishEncoder: (filename: string) => Promise<void>;
+      finishEncoder: (filename: string, durationSeconds?: number) => Promise<void>;
       cancelRecording: () => void;
+      requestFrame: () => void;
       // Standalone JPG/PNG snapshot of the live canvas — see
       // captureSingleImage in public/video_export.js. Independent of the
       // startEncoder/captureFrame/finishEncoder recording lifecycle.
@@ -415,7 +416,7 @@ class WasmBridge {
     };
   }
 
-  async stopRecording(filename: string) {
+  async stopRecording(filename: string, durationSeconds?: number) {
     const loaded = await this.loadVideoExport();
     if (!loaded || !window.VideoExportJS) {
       console.error("[wasmBridge] stopRecording: VideoExportJS is not available");
@@ -426,7 +427,11 @@ class WasmBridge {
     } catch (error) {
       console.warn("[wasmBridge] js_stop_export bridge unavailable", error);
     }
-    await window.VideoExportJS.finishEncoder(filename);
+    await window.VideoExportJS.finishEncoder(filename, durationSeconds);
+  }
+
+  requestFrame() {
+    window.VideoExportJS?.requestFrame?.();
   }
 
   cancelRecording() {

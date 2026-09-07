@@ -522,7 +522,7 @@
       // ready by the time finishEncoder wants to fix fps/duration metadata.
       ensureFFmpeg();
 
-      g_stream = g_canvas.captureStream(Math.max(1, g_frameRate));
+      g_stream = g_canvas.captureStream(0);
       const mimeType = pickMimeType(g_exportFormat);
       const recorderOptions = mimeType ? { mimeType } : undefined;
 
@@ -672,6 +672,14 @@
       return true;
     },
 
+    requestFrame: function () {
+      if (!g_stream) return;
+      const track = g_stream.getVideoTracks()[0];
+      if (track && typeof track.requestFrame === 'function') {
+        track.requestFrame();
+      }
+    },
+
     cancelRecording: function () {
       if (g_mediaRecorder && g_mediaRecorder.state !== 'inactive') {
         try {
@@ -692,7 +700,7 @@
       console.log('[VideoExport] recording cancelled');
     },
 
-    finishEncoder: async function (filename) {
+    finishEncoder: async function (filename, durationSeconds) {
       // From here on capture is over; everything left (encode, read-back,
       // zip, download) has no per-frame signal of its own, hence the
       // explicit phase notifications below.
@@ -788,7 +796,7 @@
         try {
           emitStatus('encoding', 'Fixing fps/duration metadata…');
           resetProgressTracking();
-          finalBlob = await this._fixFrameRateMetadata(rawBlob, mimeType, filename);
+          finalBlob = await this._fixFrameRateMetadata(rawBlob, mimeType, filename, durationSeconds);
           finalMimeType = finalBlob.type;
         } catch (error) {
           console.error('[VideoExport] could not fix fps/duration metadata, downloading raw capture instead', error);
@@ -811,7 +819,7 @@
     // exported file's fps and duration metadata are correct regardless of
     // how MediaRecorder timed the original frames. Runs entirely in the
     // ffmpeg worker — never touches the main thread.
-    _fixFrameRateMetadata: async function (blob, sourceMimeType, filename) {
+    _fixFrameRateMetadata: async function (blob, sourceMimeType, filename, durationSeconds) {
       const inputExt = sourceMimeType && sourceMimeType.includes('mp4') ? 'mp4' : 'webm';
       const wantsMp4 = g_exportFormat === 'mp4';
       const outputExt = wantsMp4 ? 'mp4' : 'webm';
@@ -835,25 +843,27 @@
         const args = wantsMp4
           ? [
               '-i', inputPath,
+              '-vf', `setpts=N/${g_frameRate}/TB`,
               '-r', String(g_frameRate),
               '-vsync', 'cfr',
               '-c:v', 'libx264',
               '-preset', 'veryfast',
               '-crf', '18',
               '-pix_fmt', 'yuv420p',
-              '-c:a', 'aac',
+              '-an',
               '-movflags', '+faststart',
               '-y', outputPath
             ]
           : [
               '-i', inputPath,
+              '-vf', `setpts=N/${g_frameRate}/TB`,
               '-r', String(g_frameRate),
               '-vsync', 'cfr',
               '-c:v', 'libvpx-vp9',
               '-crf', '30',
               '-b:v', '0',
               '-pix_fmt', 'yuv420p',
-              '-c:a', 'libopus',
+              '-an',
               '-y', outputPath
             ];
 

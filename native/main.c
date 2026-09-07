@@ -22,6 +22,7 @@
 #include "effects/opencv/opencv_effect.h"
 #include "effects/touchdesigner/touchdesigner_effect.h"
 #include "effects/effect_atelier/effect_atelier.h"
+#include "effects/reframe/reframe_effect.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -38,6 +39,17 @@
 
 static int g_screenW = 1280;
 static int g_screenH = 720;
+// Resolution of g_sceneTarget — the pre-effect content render. Normally
+// matches g_screenW/g_screenH (no video/camera loaded: procedural scene
+// fills whatever the canvas is). While a video or camera frame is active,
+// this instead tracks that frame's own native resolution, independent of
+// g_screenW/g_screenH — needed so an effect like reframe can pan/crop a
+// *different*-aspect output window over the full, undistorted source
+// content instead of the content itself getting stretched to the output
+// aspect first.
+static int g_sceneW = 1280;
+static int g_sceneH = 720;
+static bool g_sceneSizeFromVideo = false;
 static EffectKind g_activeEffect = EFFECT_ASCII;
 static RenderTexture2D g_sceneTarget;
 static int g_frameCount = 0;
@@ -77,7 +89,7 @@ static void DrawBaseScene(void) {
 
 	if (g_videoTextureLoaded) {
 		Rectangle src = { 0, 0, (float)g_videoTexture.width, (float)g_videoTexture.height };
-		Rectangle dst = { 0, 0, (float)g_screenW, (float)g_screenH };
+		Rectangle dst = { 0, 0, (float)g_sceneW, (float)g_sceneH };
 		DrawTexturePro(g_videoTexture, src, dst, (Vector2){ 0, 0 }, 0.0f, WHITE);
 		return;
 	}
@@ -85,13 +97,13 @@ static void DrawBaseScene(void) {
 	float t = (float)GetTime();
 
 	// Full-canvas vertical gradient background (no centered radial glow).
-	DrawRectangleGradientV(0, 0, g_screenW, g_screenH, (Color){ 27, 58, 68, 255 }, (Color){ 11, 11, 14, 255 });
+	DrawRectangleGradientV(0, 0, g_sceneW, g_sceneH, (Color){ 27, 58, 68, 255 }, (Color){ 11, 11, 14, 255 });
 
 	const int bands = 5;
 	for (int i = 0; i < bands; i++) {
 		unsigned char alpha = (unsigned char)((0.22f - i * 0.03f) * 255.0f);
 		Color c = (Color){ 68, 212, 255, alpha };
-		DrawWaveBand(g_screenW, g_screenH, t, i, bands, c);
+		DrawWaveBand(g_sceneW, g_sceneH, t, i, bands, c);
 	}
 }
 
@@ -164,15 +176,20 @@ EMSCRIPTEN_KEEPALIVE
 #endif
 void js_set_canvas_size(int width, int height) {
 	if (width <= 0 || height <= 0) return;
-	if (width == g_screenW && height == g_screenH) return;
+	if (width != g_screenW || height != g_screenH) {
+		g_screenW = width;
+		g_screenH = height;
+		SetWindowSize(g_screenW, g_screenH);
+	}
 
-	g_screenW = width;
-	g_screenH = height;
-
-	SetWindowSize(g_screenW, g_screenH);
-
-	UnloadRenderTexture(g_sceneTarget);
-	g_sceneTarget = LoadRenderTexture(g_screenW, g_screenH);
+	// While no video/camera frame is driving the scene resolution, the
+	// scene tracks the screen size 1:1, same as before this was split out.
+	if (!g_sceneSizeFromVideo && (g_sceneW != g_screenW || g_sceneH != g_screenH)) {
+		g_sceneW = g_screenW;
+		g_sceneH = g_screenH;
+		UnloadRenderTexture(g_sceneTarget);
+		g_sceneTarget = LoadRenderTexture(g_sceneW, g_sceneH);
+	}
 }
 
 #ifdef __EMSCRIPTEN__
@@ -201,6 +218,19 @@ void js_set_video_frame(const unsigned char *rgba, int width, int height) {
 	} else {
 		UpdateTexture(g_videoTexture, rgba);
 	}
+
+	// The scene must render the source content at its own native
+	// resolution — not whatever aspect the output window happens to be
+	// (e.g. reframe's vertical crop target) — so effects that pan/crop
+	// across the full frame (reframe's face tracking) always see an
+	// undistorted source image, regardless of output size.
+	g_sceneSizeFromVideo = true;
+	if (g_sceneW != width || g_sceneH != height) {
+		g_sceneW = width;
+		g_sceneH = height;
+		UnloadRenderTexture(g_sceneTarget);
+		g_sceneTarget = LoadRenderTexture(g_sceneW, g_sceneH);
+	}
 }
 
 #ifdef __EMSCRIPTEN__
@@ -213,6 +243,17 @@ void js_clear_video_frame(void) {
 	}
 	g_videoTexW = 0;
 	g_videoTexH = 0;
+
+	// No more source content driving scene resolution — fall back to
+	// tracking the screen size again, same as before any video/camera
+	// frame was ever set.
+	g_sceneSizeFromVideo = false;
+	if (g_sceneW != g_screenW || g_sceneH != g_screenH) {
+		g_sceneW = g_screenW;
+		g_sceneH = g_screenH;
+		UnloadRenderTexture(g_sceneTarget);
+		g_sceneTarget = LoadRenderTexture(g_sceneW, g_sceneH);
+	}
 }
 
 // ============================================================================
@@ -284,7 +325,9 @@ int main(void) {
 	InitWindow(g_screenW, g_screenH, "Procedural VFX Atelier");
 	SetTargetFPS(60);
 
-	g_sceneTarget = LoadRenderTexture(g_screenW, g_screenH);
+	g_sceneW = g_screenW;
+	g_sceneH = g_screenH;
+	g_sceneTarget = LoadRenderTexture(g_sceneW, g_sceneH);
 #define X(ENUM, id, FnPrefix, needsClear) FnPrefix##Effect_Init();
 	EFFECT_LIST(X)
 #undef X

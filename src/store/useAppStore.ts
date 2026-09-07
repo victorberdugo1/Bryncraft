@@ -57,6 +57,7 @@ interface AppState {
 
   video: {
     frames: ImageBitmap[] | null;
+    duration: number | null;
     loading: boolean;
     progress: number;
     error: string | null;
@@ -135,7 +136,7 @@ export const useAppStore = create<AppState>((set) => ({
   rightPanelOpen: true,
   bottomPanelOpen: true,
 
-  video: { frames: null, loading: false, progress: 0, error: null, notice: null },
+  video: { frames: null, duration: null, loading: false, progress: 0, error: null, notice: null },
   camera: { active: false, facingMode: "environment", error: null },
 
   setActiveEffect: (effect) => set({ activeEffect: effect }),
@@ -253,7 +254,7 @@ export const useAppStore = create<AppState>((set) => ({
     // sources — see setCameraActive for the other direction.
     set((s) => ({
       camera: { ...s.camera, active: false, error: null },
-      video: { frames: null, loading: true, progress: 0, error: null, notice: null },
+      video: { frames: null, duration: null, loading: true, progress: 0, error: null, notice: null },
     }));
     try {
       const result = await extractVideoFrames(
@@ -264,18 +265,19 @@ export const useAppStore = create<AppState>((set) => ({
         memoryBudgetBytes,
       );
       set({
-        video: { frames: result.frames, loading: false, progress: 1, error: null, notice: result.notice },
+        video: { frames: result.frames, duration: result.duration, loading: false, progress: 1, error: null, notice: result.notice },
         timeline: {
           playing: false,
           currentFrame: 0,
           fps: result.fps,
-          durationSeconds: result.frames.length / result.fps,
+          durationSeconds: result.duration,
         },
       });
     } catch (err) {
       set({
         video: {
           frames: null,
+          duration: null,
           loading: false,
           progress: 0,
           error: err instanceof Error ? err.message : "Error al cargar el video",
@@ -287,7 +289,7 @@ export const useAppStore = create<AppState>((set) => ({
 
   clearVideo: () =>
     set({
-      video: { frames: null, loading: false, progress: 0, error: null, notice: null },
+      video: { frames: null, duration: null, loading: false, progress: 0, error: null, notice: null },
       timeline: { playing: false, currentFrame: 0, durationSeconds: 10, fps: 60 },
     }),
 
@@ -299,7 +301,7 @@ export const useAppStore = create<AppState>((set) => ({
   setCameraActive: (active) =>
     set((s) => ({
       camera: { ...s.camera, active, error: active ? null : s.camera.error },
-      video: active ? { frames: null, loading: false, progress: 0, error: null, notice: null } : s.video,
+      video: active ? { frames: null, duration: null, loading: false, progress: 0, error: null, notice: null } : s.video,
     })),
   setCameraFacingMode: (facingMode) => set((s) => ({ camera: { ...s.camera, facingMode } })),
   setCameraError: (error) => set((s) => ({ camera: { ...s.camera, active: error ? false : s.camera.active, error } })),

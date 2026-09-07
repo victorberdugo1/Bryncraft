@@ -57,7 +57,7 @@ OUT_WASM := $(TARGET).wasm
 OUT_DATA := $(TARGET).data
 OUTPUTS  := $(OUT_HTML) $(OUT_JS) $(OUT_WASM) $(OUT_DATA)
 
-SRC_C     := main.c json_mini.c
+SRC_C     := main.c json_mini.c face_cascade_store.c
 # No SRC_CXX / trampoline .cpp: effects/opencv/opencv_effect.h is compiled AS a C++
 # translation unit directly (see the OPENCV_OBJ rule below), via `-x c++`
 # forcing the language regardless of the .h extension. That's still a C++
@@ -72,8 +72,14 @@ OPENCV_OBJ    := opencv_effect.o
 # OPENCV_OBJ arriba.
 TOUCHDESIGNER_HEADER := effects/touchdesigner/touchdesigner_effect.h
 TOUCHDESIGNER_OBJ    := touchdesigner_effect.o
-SRC       := $(SRC_C) $(OPENCV_HEADER) $(TOUCHDESIGNER_HEADER)
-OBJ       := $(SRC_C:.c=.o) $(OPENCV_OBJ) $(TOUCHDESIGNER_OBJ)
+# effects/reframe/reframe_effect.h (smart 16:9->9:16 vertical crop, face
+# tracking + active-speaker panning) needs OpenCV's Haar cascade just like
+# opencv_effect.h, so it's compiled the same way: straight from the .h as
+# its own C++ translation unit, no separate .cpp.
+REFRAME_HEADER := effects/reframe/reframe_effect.h
+REFRAME_OBJ    := reframe_effect.o
+SRC       := $(SRC_C) $(OPENCV_HEADER) $(TOUCHDESIGNER_HEADER) $(REFRAME_HEADER)
+OBJ       := $(SRC_C:.c=.o) $(OPENCV_OBJ) $(TOUCHDESIGNER_OBJ) $(REFRAME_OBJ)
 ASSETS_DIR := assets
 SHELL_FILE := shell.html
 VIDEO_EXPORT := video_export_emscripten.js
@@ -269,7 +275,7 @@ check: raylib ffmpeg opencv
 # implementation section needs a C++ frontend and the rest of the sources
 # don't. Each source only rebuilds when it, a shared header, or (for
 # OPENCV_OBJ) OpenCV itself changes.
-%.o: %.c json_mini.h effects/effect_common.h $(EFFECT_HEADERS)
+%.o: %.c json_mini.h face_cascade_store.h effects/effect_common.h $(EFFECT_HEADERS)
 	@echo "[build] Compiling $< (C)..."
 	$(call WITH_EMSDK,$(EMCC) $(CFLAGS) -c $< -o $@)
 
@@ -287,6 +293,10 @@ $(OPENCV_OBJ): $(OPENCV_HEADER) json_mini.h effects/effect_common.h $(EFFECT_HEA
 $(TOUCHDESIGNER_OBJ): $(TOUCHDESIGNER_HEADER) json_mini.h effects/effect_common.h $(EFFECT_HEADERS)
 	@echo "[build] Compiling $(TOUCHDESIGNER_HEADER) directly (C++, implementation section)..."
 	$(call WITH_EMSDK,$(EMXX) $(CXXFLAGS) -DTOUCHDESIGNER_EFFECT_IMPLEMENTATION -DTOUCHDESIGNER_EFFECT_OBJ_BUILD -x c++ -c $(TOUCHDESIGNER_HEADER) -o $(TOUCHDESIGNER_OBJ))
+
+$(REFRAME_OBJ): $(REFRAME_HEADER) face_cascade_store.h json_mini.h effects/effect_common.h $(EFFECT_HEADERS)
+	@echo "[build] Compiling $(REFRAME_HEADER) directly (C++, implementation section)..."
+	$(call WITH_EMSDK,$(EMXX) $(CXXFLAGS) -DREFRAME_EFFECT_IMPLEMENTATION -x c++ -c $(REFRAME_HEADER) -o $(REFRAME_OBJ))
 
 # Order-only prerequisite: guarantees `check` (raylib/ffmpeg/opencv) has
 # fully run before any $(OBJ) is built, even under `make -jN`, where

@@ -9,6 +9,7 @@
 #define OPENCV_EFFECT_H
 
 #include "raylib.h"
+#include "../../face_cascade_store.h"
 #ifdef __EMSCRIPTEN__
 #include "../../json_mini.h"
 #endif
@@ -147,10 +148,8 @@ static bool g_bgShadowsBuilt = false;
 static cv::CascadeClassifier g_faceCascade;
 static bool g_faceCascadeAttempted = false;
 static bool g_faceCascadeOk = false;
+static int g_faceCascadeLoadedVersion = -1;
 static std::vector<cv::Rect> g_lastFaces;
-
-static uint8_t *g_cascadeBuffer = NULL;
-static size_t g_cascadeBufferSize = 0;
 
 static int g_frameCounter = 0;
 
@@ -357,33 +356,41 @@ static cv::Mat RunBgSubtract(const cv::Mat &frame) {
 	return out;
 }
 
-static cv::Mat RunFaceDetect(const cv::Mat &frame) {
-	if (!g_faceCascadeAttempted) {
-		g_faceCascadeAttempted = true;
+static void OcvEnsureFaceCascadeLoaded() {
+	const uint8_t *buf = NULL;
+	size_t bufSize = 0;
+	int version = -1;
+	FaceCascadeStore_Get(&buf, &bufSize, &version);
 
-		try {
-			if (g_cascadeBuffer && g_cascadeBufferSize > 0) {
+	if (g_faceCascadeAttempted && version == g_faceCascadeLoadedVersion) return;
+	g_faceCascadeAttempted = true;
+	g_faceCascadeLoadedVersion = version;
 
-				FILE *tmpFile = fopen("/tmp/cascade.xml", "wb");
-				if (tmpFile) {
-					fwrite(g_cascadeBuffer, 1, g_cascadeBufferSize, tmpFile);
-					fclose(tmpFile);
+	try {
+		if (buf && bufSize > 0) {
+			FILE *tmpFile = fopen("/tmp/cascade.xml", "wb");
+			if (tmpFile) {
+				fwrite(buf, 1, bufSize, tmpFile);
+				fclose(tmpFile);
 
-					g_faceCascadeOk = g_faceCascade.load("/tmp/cascade.xml");
-					if (!g_faceCascadeOk) {
-						fprintf(stderr, "[face_detect] Failed to load cascade from buffer (returned false)\n");
-					}
-				} else {
-					fprintf(stderr, "[face_detect] Failed to write cascade buffer to /tmp\n");
+				g_faceCascadeOk = g_faceCascade.load("/tmp/cascade.xml");
+				if (!g_faceCascadeOk) {
+					fprintf(stderr, "[face_detect] Failed to load cascade from buffer (returned false)\n");
 				}
 			} else {
-				fprintf(stderr, "[face_detect] Cascade buffer not set. Call js_set_cascade_data() from JavaScript first.\n");
+				fprintf(stderr, "[face_detect] Failed to write cascade buffer to /tmp\n");
 			}
-		} catch (const cv::Exception &e) {
-			fprintf(stderr, "[face_detect] cv::Exception loading cascade: %s\n", e.what());
-			g_faceCascadeOk = false;
+		} else {
+			fprintf(stderr, "[face_detect] Cascade buffer not set. Call js_set_cascade_data() from JavaScript first.\n");
 		}
+	} catch (const cv::Exception &e) {
+		fprintf(stderr, "[face_detect] cv::Exception loading cascade: %s\n", e.what());
+		g_faceCascadeOk = false;
 	}
+}
+
+static cv::Mat RunFaceDetect(const cv::Mat &frame) {
+	OcvEnsureFaceCascadeLoaded();
 
 	cv::Mat out = frame.clone();
 	if (!g_faceCascadeOk) return out;
@@ -505,27 +512,6 @@ void OpencvEffect_Unload(void) {
 	g_lastFlowVis.release();
 	g_bgSub.release();
 	g_lastFaces.clear();
-}
-
-extern "C" {
-	void js_set_cascade_data(size_t bufSize, uint8_t *buf) {
-		if (g_cascadeBuffer) free(g_cascadeBuffer);
-		g_cascadeBuffer = NULL;
-		g_cascadeBufferSize = 0;
-
-		if (bufSize > 0 && buf) {
-			g_cascadeBuffer = (uint8_t *)malloc(bufSize);
-			if (g_cascadeBuffer) {
-				memcpy(g_cascadeBuffer, buf, bufSize);
-				g_cascadeBufferSize = bufSize;
-
-				g_faceCascadeAttempted = false;
-				g_faceCascadeOk = false;
-			} else {
-				fprintf(stderr, "[face_detect] Failed to allocate memory for cascade buffer\n");
-			}
-		}
-	}
 }
 
 #ifndef __EMSCRIPTEN__

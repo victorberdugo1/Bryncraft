@@ -34,7 +34,8 @@ extern "C" {
     X(CRT,           crt,           Crt,           true)  \
     X(OPENCV,        opencv,        Opencv,        true)  \
     X(TOUCHDESIGNER, touchdesigner, Touchdesigner, true)  \
-    X(EFFECT_ATELIER, effect_atelier, EffectAtelier, true)
+    X(EFFECT_ATELIER, effect_atelier, EffectAtelier, true) \
+    X(REFRAME,       reframe,       Reframe,       true)
 
 typedef enum {
 #define X(ENUM, id, FnPrefix, needsClear) EFFECT_##ENUM,
