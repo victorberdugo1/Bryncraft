@@ -263,7 +263,10 @@ export function ExportPanel({ trigger }: ExportPanelProps) {
             const remaining = targetTimeMs - elapsed;
             await sleep(Math.max(4, remaining));
           }
-          updateExportProgress(i + 1, ((totalFrames - i - 1) * frameIntervalMs) / 1000);
+          const elapsedSoFar = (performance.now() - exportStart) / 1000;
+          const framesLeft = totalFrames - (i + 1);
+          const etaSec = i > 0 ? (elapsedSoFar / (i + 1)) * framesLeft : framesLeft * frameIntervalMs / 1000;
+          updateExportProgress(i + 1, etaSec);
         }
       } else {
         // No source video: the effect animates on its own real-time clock

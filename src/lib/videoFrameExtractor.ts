@@ -467,9 +467,6 @@ async function extractFramesViaPlayback(
         else settleReject(new Error("No se pudo extraer ningún frame del video"));
         return;
       }
-      while (filled.length < totalExpected) {
-        filled.push(filled[filled.length - 1]);
-      }
       settleResolve(filled);
     });
   };
@@ -542,6 +539,18 @@ async function extractFramesViaPlayback(
         mediaTime >= targetTime - frameDuration * 0.5 &&
         mediaTime - lastCapturedMediaTime >= frameDuration * 0.5
       ) {
+        if (lastCapturedMediaTime > -Infinity) {
+          const skippedSlots = Math.max(0, Math.round((mediaTime - lastCapturedMediaTime) / frameDuration) - 1);
+          const slotsToFill = Math.min(skippedSlots, totalExpected - nextSlot);
+          if (slotsToFill > 0 && pendingCaptures.length > 0) {
+            const prev = pendingCaptures[pendingCaptures.length - 1];
+            for (let s = 0; s < slotsToFill; s++) {
+              pendingCaptures.push(prev.then((b) => b));
+            }
+            nextSlot += slotsToFill;
+          }
+        }
+
         let capturePromise: Promise<ImageBitmap | null>;
         try {
           ctx.drawImage(video, 0, 0, canvas.width, canvas.height);

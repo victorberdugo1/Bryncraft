@@ -45,10 +45,10 @@ const definition: EffectDefinition<"reframe"> = {
     { key: "faceMinSizeFraction", label: "Min Face Size (% width)", type: "float", default: 0.05, min: 0.02, max: 0.5, step: 0.01, group: "Detection" },
 
     { key: "activeSpeakerDetection", label: "Follow Active Speaker", type: "bool", default: true, group: "Camera" },
-    { key: "panSmoothing", label: "Pan Smoothing", type: "float", default: 0.25, min: 0.05, max: 1, step: 0.01, group: "Camera" },
-    { key: "maxPanSpeed", label: "Max Pan Speed", type: "float", default: 0.4, min: 0.1, max: 3, step: 0.05, group: "Camera" },
-    { key: "switchCooldown", label: "Switch Cooldown (s)", type: "float", default: 1.2, min: 0.1, max: 3, step: 0.05, group: "Camera" },
-    { key: "deadZone", label: "Dead Zone", type: "float", default: 0.02, min: 0, max: 0.1, step: 0.005, group: "Camera" },
+    { key: "panSmoothing", label: "Pan Smoothing", type: "float", default: 0.18, min: 0.02, max: 1, step: 0.01, group: "Camera" },
+    { key: "maxPanSpeed", label: "Max Pan Speed", type: "float", default: 0.15, min: 0.02, max: 0.5, step: 0.01, group: "Camera" },
+    { key: "switchCooldown", label: "Switch Cooldown (s)", type: "float", default: 2.5, min: 0.5, max: 6, step: 0.1, group: "Camera" },
+    { key: "deadZone", label: "Dead Zone", type: "float", default: 0.03, min: 0, max: 0.1, step: 0.005, group: "Camera" },
     { key: "fallbackMode", label: "No Face Fallback", type: "select", default: "lastKnown", options: ["lastKnown", "center"], group: "Camera" },
 
     { key: "showDebugOverlay", label: "Show Debug Overlay", type: "bool", default: false, group: "Debug" },

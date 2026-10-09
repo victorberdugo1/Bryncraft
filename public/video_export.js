@@ -176,7 +176,7 @@
         // Capped at 90: the exec() call is only the encoding step. The
         // remaining 10 points are reserved for reading the file back out of
         // ffmpeg's virtual FS and handing it to the browser.
-        const percent = Math.min(90, Math.round((progress.time / g_progressTotalSeconds) * 90));
+        const percent = Math.min(99, Math.round((progress.time / g_progressTotalSeconds) * 100));
         reportProgress(percent, progress.time, g_progressTotalSeconds);
         return;
       }
@@ -807,6 +807,7 @@
         console.warn('[VideoExport] ffmpeg not ready, downloading raw capture (fps/duration metadata may be inaccurate)');
       }
 
+      reportProgress(100, 0, 0);
       emitStatus('downloading', 'Handing the file to the browser…');
       const downloadName = resolveDownloadName(filename, finalMimeType);
       this._downloadBlob(finalBlob, downloadName);
@@ -838,7 +839,7 @@
         const probedDuration = await probeBlobDuration(blob);
         g_progressTotalSeconds = probedDuration > 0 ? probedDuration : 0;
         const heartbeatEstimate = probedDuration > 0 ? probedDuration : 8;
-        const heartbeat = startHeartbeat(heartbeatEstimate, 90);
+        const heartbeat = startHeartbeat(heartbeatEstimate, 99);
 
         const args = wantsMp4
           ? [

@@ -59,6 +59,7 @@ static bool g_captureLocked = false;
 static int g_presentedFrames = 0;
 
 // Video-as-source-texture bridge state (see js_set_video_frame below).
+int g_videoFramePushCount = 0;
 static Texture2D g_videoTexture;
 static bool g_videoTextureLoaded = false;
 static int g_videoTexW = 0;
@@ -224,6 +225,7 @@ void js_set_video_frame(const unsigned char *rgba, int width, int height) {
 	// (e.g. reframe's vertical crop target) — so effects that pan/crop
 	// across the full frame (reframe's face tracking) always see an
 	// undistorted source image, regardless of output size.
+	g_videoFramePushCount++;
 	g_sceneSizeFromVideo = true;
 	if (g_sceneW != width || g_sceneH != height) {
 		g_sceneW = width;

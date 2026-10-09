@@ -101,10 +101,10 @@ static ReframeParams g_rfParams = {
 
 	.zoom = 1.0f,
 	.headroom = 0.12f,
-	.panSmoothing = 0.25f,
-	.maxPanSpeed = 0.4f,
-	.switchCooldown = 1.2f,
-	.deadZone = 0.02f,
+	.panSmoothing = 0.18f,
+	.maxPanSpeed = 0.15f,
+	.switchCooldown = 2.5f,
+	.deadZone = 0.03f,
 	.activeSpeakerDetection = true,
 	.fallbackMode = REFRAME_FALLBACK_LAST_KNOWN,
 
@@ -128,10 +128,14 @@ static float g_rfTimeSinceSwitch = 1e9f;
 static bool g_rfSmoothInit = false;
 static float g_rfSmoothX = 0.5f;
 static float g_rfSmoothY = 0.42f;
-static float g_rfFaceTargetX = 0.5f;
-static float g_rfFaceTargetY = 0.42f;
-static bool g_rfFaceTargetInit = false;
+static float g_rfVelX = 0.0f;
+static float g_rfVelY = 0.0f;
+static float g_rfLastTargetX = 0.5f;
+static float g_rfLastTargetY = 0.42f;
 static int g_rfFramesSinceFace = 0;
+extern int g_videoFramePushCount;
+static int g_rfLastVideoPush = -1;
+static float g_rfVideoDt = 1.0f / 30.0f;
 static float g_rfDt = 1.0f / 60.0f;
 
 static cv::CascadeClassifier g_rfFaceCascade;
@@ -566,10 +570,19 @@ void ReframeEffect_Draw(RenderTexture2D scene, int screenW, int screenH) {
 	cv::Mat gray;
 	cv::cvtColor(work, gray, cv::COLOR_RGBA2GRAY);
 
+	bool hasVideo = (g_videoFramePushCount > 0);
+	bool newVideoFrame = !hasVideo || (g_videoFramePushCount != g_rfLastVideoPush);
+	if (g_videoFramePushCount != g_rfLastVideoPush) {
+		if (g_rfLastVideoPush >= 0)
+			g_rfVideoDt = g_rfDt;
+		g_rfLastVideoPush = g_videoFramePushCount;
+	}
+	if (!hasVideo) g_rfVideoDt = g_rfDt;
+
 	RfEnsureCascadeLoaded();
 	g_rfFrameCounter++;
 
-	try {
+	if (newVideoFrame) try {
 		if (g_rfCascadeOk && g_rfFrameCounter % 3 == 0) {
 			cv::Mat eq;
 			cv::equalizeHist(gray, eq);
@@ -597,22 +610,14 @@ void ReframeEffect_Draw(RenderTexture2D scene, int screenW, int screenH) {
 	if (target) {
 		float rawX = (target->rect.x + target->rect.width * 0.5f) / workW;
 		float rawY = (target->rect.y + target->rect.height * 0.5f) / workH - g_rfParams.headroom;
-		rawX = RfClamp(rawX, 0.0f, 1.0f);
-		rawY = RfClamp(rawY, 0.0f, 1.0f);
-		if (!g_rfFaceTargetInit) {
-			g_rfFaceTargetX = rawX;
-			g_rfFaceTargetY = rawY;
-			g_rfFaceTargetInit = true;
-		} else {
-			g_rfFaceTargetX = g_rfFaceTargetX * 0.7f + rawX * 0.3f;
-			g_rfFaceTargetY = g_rfFaceTargetY * 0.7f + rawY * 0.3f;
-		}
+		desiredX = RfClamp(rawX, 0.0f, 1.0f);
+		desiredY = RfClamp(rawY, 0.0f, 1.0f);
+		g_rfLastTargetX = desiredX;
+		g_rfLastTargetY = desiredY;
 		g_rfFramesSinceFace = 0;
-		desiredX = g_rfFaceTargetX;
-		desiredY = g_rfFaceTargetY;
-	} else if (g_rfFaceTargetInit && ++g_rfFramesSinceFace < 90) {
-		desiredX = g_rfFaceTargetX;
-		desiredY = g_rfFaceTargetY;
+	} else if (++g_rfFramesSinceFace < 60) {
+		desiredX = g_rfLastTargetX;
+		desiredY = g_rfLastTargetY;
 	} else if (g_rfMotionActive || g_rfMotionConfidence > 0.20f) {
 		g_rfMotionActive = (g_rfMotionConfidence > 0.08f);
 		desiredX = g_rfMotionX;
@@ -628,23 +633,34 @@ void ReframeEffect_Draw(RenderTexture2D scene, int screenW, int screenH) {
 	if (!g_rfSmoothInit) {
 		g_rfSmoothX = desiredX;
 		g_rfSmoothY = desiredY;
+		g_rfVelX = 0.0f;
+		g_rfVelY = 0.0f;
 		g_rfSmoothInit = true;
 	}
 
-	float alpha = 1.0f - expf(-RfClamp(g_rfParams.panSmoothing, 0.01f, 1.0f) * 6.0f * g_rfDt);
-	float maxStep = g_rfParams.maxPanSpeed * g_rfDt;
+	if (newVideoFrame) {
+		float vdt = g_rfVideoDt;
+		float dx = desiredX - g_rfSmoothX;
+		float dy = desiredY - g_rfSmoothY;
+		if (fabsf(dx) < g_rfParams.deadZone) dx = 0.0f;
+		if (fabsf(dy) < g_rfParams.deadZone) dy = 0.0f;
 
-	float dx = desiredX - g_rfSmoothX;
-	float dy = desiredY - g_rfSmoothY;
-	if (fabsf(dx) < g_rfParams.deadZone) dx = 0.0f;
-	if (fabsf(dy) < g_rfParams.deadZone) dy = 0.0f;
+		float spring = RfClamp(g_rfParams.panSmoothing, 0.01f, 1.0f) * 4.0f;
+		float damping = 2.0f * sqrtf(spring);
+		g_rfVelX += (dx * spring - g_rfVelX * damping) * vdt;
+		g_rfVelY += (dy * spring - g_rfVelY * damping) * vdt;
 
-	float stepX = RfClamp(dx * alpha, -maxStep, maxStep);
-	float stepY = RfClamp(dy * alpha, -maxStep, maxStep);
-	g_rfSmoothX = RfClamp(g_rfSmoothX + stepX, 0.0f, 1.0f);
-	g_rfSmoothY = RfClamp(g_rfSmoothY + stepY, 0.0f, 1.0f);
+		float maxStep = g_rfParams.maxPanSpeed * vdt;
+		g_rfVelX = RfClamp(g_rfVelX, -maxStep * 30.0f, maxStep * 30.0f);
+		g_rfVelY = RfClamp(g_rfVelY, -maxStep * 30.0f, maxStep * 30.0f);
 
-	g_rfTimeSinceSwitch += g_rfDt;
+		float stepX = RfClamp(g_rfVelX * vdt, -maxStep, maxStep);
+		float stepY = RfClamp(g_rfVelY * vdt, -maxStep, maxStep);
+		g_rfSmoothX = RfClamp(g_rfSmoothX + stepX, 0.0f, 1.0f);
+		g_rfSmoothY = RfClamp(g_rfSmoothY + stepY, 0.0f, 1.0f);
+
+		g_rfTimeSinceSwitch += vdt;
+	}
 
 	float aspect = g_rfParams.targetAspectW / std::max(0.0001f, g_rfParams.targetAspectH);
 	float zoom = std::max(1.0f, g_rfParams.zoom);
@@ -696,10 +712,13 @@ void ReframeEffect_Unload(void) {
 	g_rfTracks.clear();
 	g_rfCurrentTargetId = -1;
 	g_rfSmoothInit = false;
-	g_rfFaceTargetInit = false;
+	g_rfVelX = 0.0f;
+	g_rfVelY = 0.0f;
+	g_rfLastTargetX = 0.5f;
+	g_rfLastTargetY = 0.42f;
 	g_rfFramesSinceFace = 0;
-	g_rfFaceTargetX = 0.5f;
-	g_rfFaceTargetY = 0.42f;
+	g_rfLastVideoPush = -1;
+	g_rfVideoDt = 1.0f / 30.0f;
 	g_rfSaliencyX = 0.5f;
 	g_rfSaliencyY = 0.382f;
 	g_rfSaliencyTimer = 9999;
